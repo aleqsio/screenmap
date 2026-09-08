@@ -104,6 +104,7 @@ async function waitBootComplete(id, timeoutMs = 300000) {
       // capture would otherwise be the lock screen
       adbOk(id, ['shell', 'input', 'keyevent', '82'])
       adbOk(id, ['shell', 'wm', 'dismiss-keyguard'])
+      quietSystemDialogs(id)
       return true
     }
     await sleep(2000)
@@ -138,6 +139,21 @@ export async function ensureBooted(config) {
     await sleep(3000)
   }
   throw new Error(`AVD ${avd} did not come up within 5 minutes`)
+}
+
+// An emulator on software rendering is slow enough that the launcher and the app
+// itself trip Android's "isn't responding" watchdog. The dialog is modal, it is
+// drawn over whatever is on screen, and nothing dismisses it — so it lands in
+// every remaining capture of the run. The first green Android baseline came back
+// with all eight screens behind a grey scrim reading "Pixel Launcher isn't
+// responding". This is the switch that stops the system drawing them at all;
+// `dismissAlert()` in replay.mjs handles one that still gets through.
+export function quietSystemDialogs(id) {
+  adbOk(id, ['shell', 'settings', 'put', 'global', 'hide_error_dialogs', '1'])
+  adbOk(id, ['shell', 'settings', 'put', 'global', 'anr_show_background', '0'])
+  // long-press power / "system UI isn't responding" variants come from the same
+  // watchdog and are suppressed by the same setting on modern images
+  adbOk(id, ['shell', 'settings', 'put', 'secure', 'immersive_mode_confirmations', 'confirmed'])
 }
 
 // SystemUI demo mode is Android's answer to `simctl status_bar override`:

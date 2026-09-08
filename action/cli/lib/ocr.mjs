@@ -149,12 +149,18 @@ export const containment = (needles, hay) => { if (!needles.size) return null; l
 
 const ALERT_HINTS = [/would like/i, /don['’]t allow/i, /^allow$/i, /allow while using/i, /allow once/i, /^not now$/i, /turn on/i, /^ok$/i,
   // Android's runtime permission dialog wording
-  /while using the app/i, /only this time/i, /^deny$/i, /don['’]t allow/i]
+  /while using the app/i, /only this time/i, /^deny$/i, /don['’]t allow/i,
+  // Android's ANR dialog. hide_error_dialogs should stop these being drawn at
+  // all (see android.mjs), but a slow emulator is exactly where they appear and
+  // exactly where a capture cannot afford one — it is modal and stays up.
+  /isn['’]t responding/i, /has stopped/i, /keeps stopping/i, /^wait$/i, /^close app$/i]
 // a system permission/alert is up if several of its tell-tale strings are visible
 export function alertButtons(items) {
   const texts = items.map((i) => i.text.trim())
   const hits = texts.filter((t) => ALERT_HINTS.some((re) => re.test(t)))
   if (hits.length < 2) return []
-  const order = [/don['’]t allow/i, /^deny$/i, /^not now$/i, /^ok$/i, /only this time/i, /allow once/i, /while using the app/i, /allow while using/i, /^allow$/i, /limit access/i]
+  // most conservative first. "Wait" beats "Close app" on an ANR: the app under
+  // test is the thing being mapped, and killing it ends the run.
+  const order = [/^wait$/i, /don['’]t allow/i, /^deny$/i, /^not now$/i, /^ok$/i, /only this time/i, /allow once/i, /while using the app/i, /allow while using/i, /^allow$/i, /limit access/i]
   return items.filter((i) => order.some((re) => re.test(i.text.trim()))).sort((a, b) => order.findIndex((re) => re.test(a.text)) - order.findIndex((re) => re.test(b.text)))
 }
