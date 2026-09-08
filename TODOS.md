@@ -6,53 +6,60 @@ the full write-up of what that turned up is in `site/docs/setup-instruction-fixe
 
 ---
 
-## Android: what has and has not been run against a real device
+## Android: verified on CI, and what the first runs cost
 
-Android support landed on 2026-09-01. Everything that does not need an Android
-device was exercised end to end, most of it against `sample-app` and its real
-captures: config resolution, the multi-platform bundle (v3) and diff (v2),
-incremental reuse, `screenmap-ci merge`, the viewer's platform switcher, the
-tesseract OCR backend, and the refactored iOS driver against a live simulator.
-**The `adb` driver in `action/cli/lib/android.mjs` has not been run against a
-live emulator**, because the machine it was written on has no Android SDK. Treat
-the first real run as the test, and check these in order — they are ranked by how
-likely they are to be wrong:
+Android support landed on 2026-09-01 and ran green on GitHub Actions on
+2026-09-08 against `aleqsio/screenmap-test`: emulator booted, APK installed,
+`adb reverse` tunnelled, `brew://` deep links resolved, first JS bundle served,
+eight screens captured and published. **The adb driver itself needed no changes
+after the first successful boot** — every fix was in `action.yml` or in how the
+run reported failure. What it took, in order, because none of it was reachable
+from a laptop:
 
-1. **`muteDevMenu()` is a guess.** It writes
-   `expo.modules.devmenu.sharedpreferences.xml` through `run-as`. The file name and
-   the three boolean keys were inferred from the iOS `EXDevMenu*` defaults, not read
-   off a device. If the dev-menu overlay shows up in captures, dump the real prefs
-   (`adb shell run-as <pkg> ls /data/data/<pkg>/shared_prefs`) and fix the names.
-   Deliberately non-fatal: a wrong guess costs a floating button in the corner of
-   every screenshot, not a failed run.
-2. **`appIdOf()` depends on `aapt2` being findable.** It searches PATH then every
-   `build-tools/*` under the SDK roots. A runner that ships the SDK without
-   build-tools falls through to a clear error telling the user to set
-   `android.packageName`, but that path has never actually fired.
-3. **The connect loop's cold-start nudge.** `openUrl` on a force-stopped app is
-   assumed to launch it straight into the deep link, the way `simctl openurl` does.
-   If the first bundle never arrives, that assumption is the first thing to check —
-   diagnostics land in `.screenmap/out/ci/diag/android/` (screenshot, logcat tail,
-   package list, Metro log).
-4. **SystemUI demo mode** is broadcast-based and silently does nothing on a build
-   where `sysui_demo_allowed` is not settable. A base/head pair with a drifting
-   clock in the diff means it did not take.
+1. **`yes | sdkmanager` failed a step that succeeded.** GitHub runs `shell: bash`
+   with `-eo pipefail`; `yes` dies of SIGPIPE the moment sdkmanager stops
+   reading, and pipefail takes that as the pipeline's status. Read
+   `PIPESTATUS[1]` instead.
+2. **`libpulse.so.0` is not on GitHub's ubuntu images**, and the SDK's qemu links
+   against it, so `emulator` could not start at all. Installed for android runs
+   along with the X libs, those best-effort since the names drift between
+   releases.
+3. **avdmanager and emulator disagreed on where AVDs live.** Different resolution
+   chains (`ANDROID_AVD_HOME`, then `$ANDROID_SDK_HOME/.android/avd` for one and
+   `$HOME/.android/avd` for the other). The AVD was created and invisible.
+   `ANDROID_AVD_HOME` is now pinned for both.
+4. **Every capture came back behind "Pixel Launcher isn't responding".** An
+   emulator on software rendering trips the ANR watchdog, the dialog is modal,
+   and it lands in every capture after it. `hide_error_dialogs` stops the system
+   drawing them; `ALERT_HINTS` learned the wording as a second layer.
 
-Also unproven: the KVM setup in `action.yml` on a real ubuntu runner, and whether
-`emulator -no-window` plus `-gpu swiftshader_indirect` boots fast enough there to
-beat the macOS rate it exists to avoid.
+Two of those cost far more than they should have because the run reported the
+wrong thing, which is the lesson worth keeping: `emulator -version` was `|| true`,
+so a broken binary surfaced seventeen minutes and one EAS build later as "no AVD
+defined" — the one thing that was not wrong. Both are now hard gates that print
+the underlying tool's own complaint.
 
-### The bug the sample-app run caught
+Incidental finds along the way: EAS generates Android credentials
+non-interactively, so no keystore setup is needed; fingerprint reuse works
+(a rebuild collapsed to an 8-second download); and the baseline workflow's
+`full` input had never been wired to `--full`.
 
-Worth recording because it was invisible and would have shipped a plausible-looking
-wrong map. `baselineSide()` originally let a single-platform bundle answer for any
-platform asked of it. A repo whose previous baseline was iOS-only, turning Android
-on, therefore "reused" all six iOS screenshots as Android captures — labelled
-Android in the viewer, and indistinguishable from a real run. Bundles now declare
-which platforms they hold (`platformsIn()`), a side that is not there reports
-`exists: false` so the new platform captures in full, and `merge` refuses an
-input whose platform does not match the one it is being merged as rather than
-silently mislabelling it.
+### Still unverified
+
+- **`muteDevMenu()` remains a guess.** No dev-menu overlay appeared in the
+  captures, but this app may simply not show one where iOS would, so the
+  SharedPreferences filename and keys are still unconfirmed. It stays
+  best-effort and non-fatal.
+- **The status bar clock.** Demo mode's pinned icons show, and the run that had
+  the ANR dialog up also showed `9:41`; the run without it shows no clock at
+  all. The likeliest reading is that the app draws edge-to-edge over the clock
+  area and the dialog was changing the window insets — but that is a guess, and
+  the alternative is that a demo-mode broadcast is being dropped. It does not
+  affect a single run, where all eight captures agree. It would matter across
+  base and head: a clock present in one and absent in the other marks every
+  screen changed. Worth settling before the Android PR lane is trusted.
+- **The PR lane itself.** Only the baseline has run. The diff, its comment, and
+  the tesseract OCR line in it are still untested on a real PR.
 
 ## The screenmaps branch has no platform in its paths
 
