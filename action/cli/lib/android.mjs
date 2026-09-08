@@ -75,10 +75,19 @@ export function listBooted() {
     })
 }
 
+// Defined AVDs, plus why the answer is empty when it is. `emulator -list-avds`
+// failing and there genuinely being no AVDs look identical from the outside,
+// and the two need very different fixes — a runner whose qemu cannot load its
+// shared libraries reported "no AVD defined" for seventeen minutes before this
+// distinction existed.
 export function listAvds() {
   const bin = emulatorPath()
-  if (!bin) return []
-  try { return sh(bin, ['-list-avds']).split('\n').map((s) => s.trim()).filter(Boolean) } catch { return [] }
+  if (!bin) return { avds: [], error: 'no emulator binary found (set ANDROID_HOME)' }
+  try {
+    return { avds: sh(bin, ['-list-avds']).split('\n').map((s) => s.trim()).filter(Boolean), error: null }
+  } catch (e) {
+    return { avds: [], error: `emulator -list-avds failed: ${(e.stderr || e.message || '').trim().split('\n').slice(-2).join(' ')}` }
+  }
 }
 
 // Wait for the device to finish booting. `wait-for-device` only waits for adb
@@ -112,7 +121,8 @@ export async function ensureBooted(config) {
   }
   const bin = emulatorPath()
   if (!bin) throw new Error('no Android device connected and no emulator binary found (set ANDROID_HOME)')
-  const avds = listAvds()
+  const { avds, error } = listAvds()
+  if (error) throw new Error(`no Android device connected, and the emulator could not be queried — ${error}`)
   if (!avds.length) throw new Error('no Android device connected and no AVD defined — create one with avdmanager')
   const avd = avds.find((a) => a === config.device) ?? avds[0]
   log(`booting AVD ${avd}`)
