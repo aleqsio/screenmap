@@ -60,9 +60,9 @@ PR opened ──▶ restore baseline (screenmaps branch) ──▶ static parse 
 You need all four of these:
 
 - An Expo or React Native app using expo-router or a react-navigation route map, with `expo-dev-client` installed and deep-linkable routes.
-- An EAS build profile that produces a simulator build, or a simulator build of your own.
+- An EAS build profile that produces a simulator build (iOS) or an APK (Android — set `"android": { "buildType": "apk" }`, since an `.aab` cannot be installed on an emulator), or a build of your own.
 - A GitHub repo you can add secrets to.
-- macOS runner minutes. screenmap runs on macOS only, which bills at ten times the Linux rate. A JavaScript-only pull request takes about 12 minutes end to end.
+- Runner minutes. iOS needs macOS, which bills at ten times the Linux rate; Android runs on `ubuntu-latest`. A JavaScript-only pull request takes about 12 minutes end to end.
 
 ### Install
 
@@ -121,10 +121,15 @@ You need all four of these:
    | --- | --- | --- |
    | `effort` | `balanced` | The preset from step 3. The `effort` input and `SCREENMAP_EFFORT` set the same thing |
    | `scheme` | from the parsed app config | URL scheme the deep links use |
-   | `device` | `iPhone 16 Pro` | Simulator to boot. In the Action, the `simulator` input boots the device |
+   | `platforms` | `["ios"]` | Which platforms a run captures — `["ios"]`, `["android"]`, or both. In the Action each platform is its own job (the `platform` input), folded together afterwards by `screenmap-ci merge` |
+   | `ios.device` | `iPhone 16 Pro` | Simulator to boot. In the Action, the `simulator` input boots the device |
+   | `ios.appPath` | discovered under `ios/build` | A prebuilt simulator `.app`. The `app_path` input wins over it |
+   | `ios.appId` | read from the `.app` | Bundle id. Override when discovery picks the wrong one |
+   | `android.device` | any attached device, else the first AVD | AVD name, or the model of an attached device. In the Action, the `avd` input |
+   | `android.appPath` | discovered under `android/app/build/outputs/apk` | A prebuilt `.apk`. The `app_path` input wins over it |
+   | `android.appId` | read from the APK with `aapt2` | Package name. Also accepted as `android.packageName` |
    | `appName` | the project directory name | Name recorded in the bundle |
-   | `bundleId` | read from the `.app` | Override when discovery picks the wrong one |
-   | `appPath` | discovered under `ios/build` | A prebuilt simulator `.app`. The `app_path` input wins over it |
+   | `device`, `bundleId`, `appPath` | — | Pre-multi-platform spellings of the `ios.*` keys above; still honoured |
    | `metroPort` | `8081` | Port Metro starts on |
    | `params` | `{}` | Real values for route parameters, see below |
    | `suspects.depth` | from `effort` | Import hops followed out from a changed file |
@@ -283,7 +288,7 @@ What you get:
 - **Runtime states as first-class screens.** Bottom-sheet snap points, modals and drawers are captured as variants of the screen they belong to.
 - **The path to every screen, saved.** Each screen carries the exact tap sequence that reaches it, ready to replay headlessly. Commit those flows and CI replays them instead of paying an agent to rediscover them.
 
-Output lands in `<project>/.screenmap/out/`, so add that to your `.gitignore`. You need a macOS host with the iOS simulator.
+Output lands in `<project>/.screenmap/out/`, so add that to your `.gitignore`. You need a macOS host with the iOS simulator, or an Android emulator (`--platform android`); `--platform both` captures each screen on both and puts them in one map behind a platform switcher.
 
 ## The map viewer
 
@@ -322,7 +327,7 @@ Drop a `.scrmap` bundle on the landing page. The demo bundle ships in `public/de
 ```
 
 1. **Static parse** (no dependencies). Reads expo-router file conventions and react-navigation route maps (the kind Bluesky keeps in `src/routes.ts`), so the screen list is complete rather than whatever a crawler happened to find. It produces the route list, navigation edges from `Link` and `navigate()` calls, and state hints saying which screens use a bottom-sheet or dialog system.
-2. **Agent exploration** in the iOS simulator. A deep-link sweep captures every screen and classifies each capture (real, empty state, not found, error boundary, auth wall). For the screens a deep link cannot reach, an agent drives the app and records the tap path as an [argent](https://argent.swmansion.com) flow in YAML, replayable later with `argent flow run`. Runtime states get captured too: open drawers, bottom-sheet snap points, dialogs. If a sticky error boundary blocks the app, the agent recovers and carries on.
+2. **Agent exploration** in the iOS simulator or Android emulator. A deep-link sweep captures every screen and classifies each capture (real, empty state, not found, error boundary, auth wall). For the screens a deep link cannot reach, an agent drives the app and records the tap path as an [argent](https://argent.swmansion.com) flow in YAML, replayable later with `argent flow run`. Runtime states get captured too: open drawers, bottom-sheet snap points, dialogs. If a sticky error boundary blocks the app, the agent recovers and carries on.
 3. **Pack.** Everything merges into a producer-agnostic `.scrmap` zip. The format contract is in [docs/scrmap-format.md](docs/scrmap-format.md), which is what you need if you want to write your own producer.
 4. **Visualise.** The viewer draws a top-down graph with the root screen at the top-center and phone-framed screenshots. Load a second bundle, a `.diff.scrmap`, and it overlays what a pull request changed.
 
@@ -341,7 +346,10 @@ The expensive part is step 2, and you only pay it once. Recorded flows get commi
 
 ## Known limits
 
-- **iOS only.** Android is not supported yet. The interactive phases need a macOS host with the iOS simulator, and there is a web fallback for capture but not for tap recording.
+- **One platform per CI job.** iOS needs a macOS runner and Android is only worth running on Linux, so capturing both means two jobs and a `screenmap-ci merge` step; the workflow templates show the shape. A local run does both in one pass.
+- **Android's dev-menu muting is best-effort.** iOS writes the preference through `simctl spawn defaults`; Android has to reach the app's SharedPreferences through `run-as`, which only works for a debuggable build. When it fails, the dev-menu floating button stays in the captures — cosmetic, and the run continues.
+- **OCR on Linux is tesseract, not Vision.** The landing checks, deep-link verification and system-alert dismissal all read the screen, and tesseract recovers noticeably fewer words than Apple Vision. Screen-to-screen comparisons hold up (same-text scores are unchanged; different-screen scores only move further apart), but a landmark check is likelier to miss, so a drift warning from a Linux run is less certain than one from macOS. The run summary and the PR comment name the backend when it is not Vision.
+- **Flows are per platform.** Coordinates are normalized, but layouts and system chrome are not, so a flow recorded on iOS is not guaranteed to replay on Android. Record and commit them per platform.
 - **Your app needs a router screenmap can read.** expo-router file conventions or a react-navigation route map. Screens registered without URLs are invisible to the static parse, and only show up through agent exploration.
 - **Edge extraction is regex-based**, so dynamic hrefs resolve to their route pattern.
 - **It reports, it does not gate.** There is no pass/fail check, by design. A reviewer decides what the screenshots mean.

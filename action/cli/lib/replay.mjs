@@ -12,7 +12,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import YAML from 'yaml'
-import { screenshot } from './sim.mjs'
+import { screenshot } from './device.mjs'
 import { argentFlow, argentRun } from './argent.mjs'
 import { ocr, words, jaccard, containment, alertButtons } from './ocr.mjs'
 import { readJson, ensureDir, log, sleep } from './util.mjs'
@@ -39,16 +39,16 @@ export function loadFlows(projectDir, dirs) {
   return byRoute
 }
 
-function runFragment(steps, name, tmpDir, udid) {
+function runFragment(steps, name, tmpDir, device) {
   const file = path.join(tmpDir, `${name}.yaml`)
   fs.writeFileSync(file, YAML.stringify({ steps }))
-  const r = argentFlow(file, udid)
+  const r = argentFlow(file, device.id)
   if (!r.ok) log(`argent fragment ${name} failed:`, r.raw.trim().slice(-400))
   return r.ok
 }
 
 // Replays one flow and writes its captures into outDir.
-export async function replayFlow(rec, { udid, outDir, tmpDir }) {
+export async function replayFlow(rec, { device, outDir, tmpDir }) {
   const doc = YAML.parse(fs.readFileSync(rec.yaml, 'utf8'))
   const steps = doc?.steps ?? []
   const captures = Object.entries(rec.meta.steps ?? {}).filter(([, s]) => s.capture).map(([i, s]) => ({ after: Number(i), file: s.capture })).sort((a, b) => a.after - b.after)
@@ -57,26 +57,26 @@ export async function replayFlow(rec, { udid, outDir, tmpDir }) {
   let cursor = 0, seg = 0
   for (const cap of captures) {
     const frag = steps.slice(cursor, cap.after + 1)
-    if (frag.length && !runFragment(frag, `${rec.name}-${seg++}`, tmpDir, udid)) return { ok: false, written }
+    if (frag.length && !runFragment(frag, `${rec.name}-${seg++}`, tmpDir, device)) return { ok: false, written }
     await sleep(400)
-    screenshot(udid, path.join(outDir, cap.file))
+    screenshot(device, path.join(outDir, cap.file))
     written.push(cap.file)
     cursor = cap.after + 1
   }
-  if (cursor < steps.length && !runFragment(steps.slice(cursor), `${rec.name}-${seg++}`, tmpDir, udid)) return { ok: false, written }
+  if (cursor < steps.length && !runFragment(steps.slice(cursor), `${rec.name}-${seg++}`, tmpDir, device)) return { ok: false, written }
   return { ok: true, written }
 }
 
 // If a system alert is on screen, tap its most conservative button (Don't
 // Allow / Not Now / OK) and return true.
-export function dismissAlert(udid, shotPath) {
+export function dismissAlert(device, shotPath) {
   const items = ocr(shotPath)
   const buttons = alertButtons(items)
   if (!buttons.length) return false
   const b = buttons[0]
   // Vision boxes: normalized, origin bottom-left → argent taps: origin top-left
   const x = b.x + b.w / 2, y = 1 - (b.y + b.h / 2)
-  const r = argentRun('gesture-tap', { udid, x: x.toFixed(4), y: y.toFixed(4) })
+  const r = argentRun('gesture-tap', { udid: device.id, x: x.toFixed(4), y: y.toFixed(4) })
   log(`dismissed system alert via "${b.text}" (${r.ok ? 'ok' : 'tap failed'})`)
   return r.ok
 }
@@ -127,10 +127,10 @@ export async function verifyDeepLink({ shot, rec, probeBogus }) {
   return { ok: true, method: 'unverified', score: null }
 }
 
-export async function verifyLanding({ shot, rec, udid, probe }) {
+export async function verifyLanding({ shot, rec, device, probe }) {
   // probe(): async () => path of a fresh deep-link capture of the same route (only used as fallback)
   let items = ocr(shot)
-  if (alertButtons(items).length && dismissAlert(udid, shot)) { await sleep(600); screenshot(udid, shot); items = ocr(shot) }
+  if (alertButtons(items).length && dismissAlert(device, shot)) { await sleep(600); screenshot(device, shot); items = ocr(shot) }
   const seen = words(items)
   const marks = landmarksOf(rec.meta)
   if (marks.size >= 2) {

@@ -264,16 +264,19 @@
   transition-duration: 0.3s;
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
+/* --shot-aspect is set from the capture's own dimensions once it loads (see
+   ScreenNode); the iPhone ratio is only the shape the frame holds until then,
+   and for an Android capture it is replaced rather than cropped to. */
 .phone img {
   display: block;
   width: 100%;
-  aspect-ratio: 402 / 874;
+  aspect-ratio: var(--shot-aspect, 402 / 874);
   object-fit: cover;
   border-radius: 19px; /* concentric: 24 − 5 */
   background: var(--paper-2);
 }
 .no-shot {
-  aspect-ratio: 402 / 874;
+  aspect-ratio: var(--shot-aspect, 402 / 874);
   border-radius: 19px;
   display: grid;
   place-items: center;

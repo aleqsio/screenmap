@@ -17,11 +17,14 @@ export async function loadBundle(buffer) {
   }
   const manifest = JSON.parse(text('manifest.json'))
   if (manifest.kind === 'diff') return loadDiffBundle(files, manifest, text)
-  if (manifest.formatVersion !== 1 && manifest.formatVersion !== 2) {
+  // v3 adds the platform axis: screens live under screens/<platform>/ and each
+  // node carries a `captures` map. `capture` still mirrors the first platform,
+  // so everything downstream keeps working until withPlatform() swaps it.
+  if (![1, 2, 3].includes(manifest.formatVersion)) {
     throw new Error(`unsupported formatVersion ${manifest.formatVersion}`)
   }
   const map = JSON.parse(text('map.json'))
-  if (manifest.formatVersion === 2) {
+  if (manifest.formatVersion >= 2) {
     map.flows = Object.keys(files)
       .filter((n) => /^flows\/.+\.yaml$/.test(n))
       .map((n) => {
@@ -50,7 +53,7 @@ export async function loadBundle(buffer) {
 // (removed) nodes and edges are merged in so the map shows what disappeared.
 // Screenshot paths get side-prefixed keys ("head/screens/…") into `images`.
 function loadDiffBundle(files, manifest, text) {
-  if (manifest.formatVersion !== 1) {
+  if (![1, 2].includes(manifest.formatVersion)) {
     throw new Error(`unsupported diff formatVersion ${manifest.formatVersion}`)
   }
   const diff = JSON.parse(text('diff.json'))
@@ -77,12 +80,18 @@ function loadDiffBundle(files, manifest, text) {
     screenshot: cap.screenshot ? `${side}/${cap.screenshot}` : null,
     states: (cap.states ?? []).map((s) => ({ ...s, screenshot: `${side}/${s.screenshot}` })),
   })
+  // v2 diffs carry one capture per platform; side-prefix each of them so
+  // withPlatform() can swap the whole node over in one step
+  const sideCaptures = (n, side) =>
+    n?.captures ? Object.fromEntries(Object.entries(n.captures).map(([p, c]) => [p, sideCapture(c, side)])) : null
   const baseById = new Map(baseMap.nodes.map((n) => [n.id, n]))
   const headIds = new Set(headMap.nodes.map((n) => n.id))
   const nodes = headMap.nodes.map((n) => ({
     ...n,
     capture: sideCapture(n.capture, 'head'),
     captureBase: baseById.has(n.id) ? sideCapture(baseById.get(n.id).capture, 'base') : null,
+    captures: sideCaptures(n, 'head'),
+    capturesBase: baseById.has(n.id) ? sideCaptures(baseById.get(n.id), 'base') : null,
     diff: nodeDiff.get(n.id) ?? null,
     stateDiff: stateDiff[n.id] ?? null,
   }))
@@ -91,6 +100,8 @@ function loadDiffBundle(files, manifest, text) {
       ...b,
       capture: sideCapture(b.capture, 'base'),
       captureBase: null,
+      captures: sideCaptures(b, 'base'),
+      capturesBase: null,
       diff: nodeDiff.get(b.id) ?? { id: b.id, status: 'D', reason: 'route-removed' },
       stateDiff: stateDiff[b.id] ?? null,
     })
@@ -269,4 +280,44 @@ export function flowResolution(map) {
 
 export function isInteractive(flow) {
   return (flow.steps ?? []).some((s) => ['tap', 'swipe', 'type', 'touch_path'].includes(s.action))
+}
+
+
+// The platforms a bundle carries, in capture order. A single-platform bundle
+// (every v1/v2 map) reports the one platform its manifest names, so callers
+// never have to special-case "before multi-platform".
+export function platformsOf(bundle) {
+  const app = bundle?.manifest?.app
+  if (!app) return []
+  if (Array.isArray(app.platforms) && app.platforms.length) return app.platforms
+  const label = app.platform ?? null
+  const platform = label === 'android-emulator' ? 'android' : label === 'ios-simulator' ? 'ios' : (label ?? 'ios')
+  return [{ platform, label, device: app.device ?? null }]
+}
+
+// Point every node's `capture` at one platform's captures. Applied before the
+// map/diff merge, so nothing downstream needs to know platforms exist — it
+// keeps reading `capture` exactly as it always has.
+export function withPlatform(bundle, platform) {
+  if (!bundle || !platform) return bundle
+  const nodes = bundle.map.nodes
+  if (!nodes.some((n) => n.captures)) return bundle // single-platform bundle
+  return {
+    ...bundle,
+    map: {
+      ...bundle.map,
+      nodes: nodes.map((n) => {
+        // a node captured on only one platform keeps the capture it has rather
+        // than blanking out — a screen that exists on iOS and not Android is
+        // better shown than hidden
+        const cap = n.captures?.[platform]
+        const capBase = n.capturesBase?.[platform]
+        return {
+          ...n,
+          ...(cap ? { capture: cap } : {}),
+          ...(n.capturesBase ? { captureBase: capBase ?? null } : {}),
+        }
+      }),
+    },
+  }
 }

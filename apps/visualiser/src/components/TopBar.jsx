@@ -43,11 +43,17 @@ function ThemeMenu() {
   )
 }
 
-export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, stats, diffStats, onOpenBuffer, onCloseChanges }) {
+const PLATFORM_LABEL = { ios: 'iOS', android: 'Android' }
+
+export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, stats, diffStats, platforms = [], platform, setPlatform, onOpenBuffer, onCloseChanges }) {
   const diffMode = mode === 'changes'
+  // The switcher only earns its space when there is something to switch to; a
+  // single-platform map keeps the bar it always had.
+  const multiPlatform = platforms.length > 1
+  const activeDevice = platforms.find((p) => p.platform === platform)?.device ?? manifest.app.device
   const sub = diffMode
     ? `${manifest.pr ? `PR #${manifest.pr.number} · ` : ''}${manifest.pr?.title ?? `${(manifest.base?.commit ?? 'base').slice(0, 7)} → ${(manifest.head?.commit ?? 'head').slice(0, 7)}`}${overlaid ? '' : ' · no map backdrop'}`
-    : `${manifest.app.mode ?? 'map'} · ${manifest.app.device ?? 'unknown device'} · ${new Date(manifest.generatedAt).toLocaleDateString()}`
+    : `${manifest.app.mode ?? 'map'} · ${activeDevice ?? 'unknown device'} · ${new Date(manifest.generatedAt).toLocaleDateString()}`
 
   // Two width thresholds, both measured rather than guessed. Below 520px the
   // identity panel and the tool panel no longer share a line — they used to
@@ -92,6 +98,34 @@ export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, 
             {!hasChanges && <TooltipContent>Open a .diff.scrmap to review a PR</TooltipContent>}
           </Tooltip>
         </ToggleGroup>
+
+        {multiPlatform && (
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            spacing={0}
+            value={platform ?? ''}
+            onValueChange={(v) => v && setPlatform?.(v)}
+            aria-label="Platform"
+            className="shrink-0"
+          >
+            {platforms.map((p) => (
+              <Tooltip key={p.platform}>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value={p.platform}
+                    aria-label={PLATFORM_LABEL[p.platform] ?? p.platform}
+                    className="data-[state=on]:bg-foreground data-[state=on]:text-background"
+                  >
+                    {PLATFORM_LABEL[p.platform] ?? p.platform}
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent>{p.device ?? p.label ?? p.platform}</TooltipContent>
+              </Tooltip>
+            ))}
+          </ToggleGroup>
+        )}
 
         <div className="hidden items-center gap-3 md:flex">
           {diffMode && diffStats ? (

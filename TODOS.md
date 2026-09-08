@@ -6,6 +6,87 @@ the full write-up of what that turned up is in `site/docs/setup-instruction-fixe
 
 ---
 
+## Android: what has and has not been run against a real device
+
+Android support landed on 2026-09-01. Everything that does not need an Android
+device was exercised end to end, most of it against `sample-app` and its real
+captures: config resolution, the multi-platform bundle (v3) and diff (v2),
+incremental reuse, `screenmap-ci merge`, the viewer's platform switcher, the
+tesseract OCR backend, and the refactored iOS driver against a live simulator.
+**The `adb` driver in `action/cli/lib/android.mjs` has not been run against a
+live emulator**, because the machine it was written on has no Android SDK. Treat
+the first real run as the test, and check these in order — they are ranked by how
+likely they are to be wrong:
+
+1. **`muteDevMenu()` is a guess.** It writes
+   `expo.modules.devmenu.sharedpreferences.xml` through `run-as`. The file name and
+   the three boolean keys were inferred from the iOS `EXDevMenu*` defaults, not read
+   off a device. If the dev-menu overlay shows up in captures, dump the real prefs
+   (`adb shell run-as <pkg> ls /data/data/<pkg>/shared_prefs`) and fix the names.
+   Deliberately non-fatal: a wrong guess costs a floating button in the corner of
+   every screenshot, not a failed run.
+2. **`appIdOf()` depends on `aapt2` being findable.** It searches PATH then every
+   `build-tools/*` under the SDK roots. A runner that ships the SDK without
+   build-tools falls through to a clear error telling the user to set
+   `android.packageName`, but that path has never actually fired.
+3. **The connect loop's cold-start nudge.** `openUrl` on a force-stopped app is
+   assumed to launch it straight into the deep link, the way `simctl openurl` does.
+   If the first bundle never arrives, that assumption is the first thing to check —
+   diagnostics land in `.screenmap/out/ci/diag/android/` (screenshot, logcat tail,
+   package list, Metro log).
+4. **SystemUI demo mode** is broadcast-based and silently does nothing on a build
+   where `sysui_demo_allowed` is not settable. A base/head pair with a drifting
+   clock in the diff means it did not take.
+
+Also unproven: the KVM setup in `action.yml` on a real ubuntu runner, and whether
+`emulator -no-window` plus `-gpu swiftshader_indirect` boots fast enough there to
+beat the macOS rate it exists to avoid.
+
+### The bug the sample-app run caught
+
+Worth recording because it was invisible and would have shipped a plausible-looking
+wrong map. `baselineSide()` originally let a single-platform bundle answer for any
+platform asked of it. A repo whose previous baseline was iOS-only, turning Android
+on, therefore "reused" all six iOS screenshots as Android captures — labelled
+Android in the viewer, and indistinguishable from a real run. Bundles now declare
+which platforms they hold (`platformsIn()`), a side that is not there reports
+`exists: false` so the new platform captures in full, and `merge` refuses an
+input whose platform does not match the one it is being merged as rather than
+silently mislabelling it.
+
+## OCR recall on the Linux lane
+
+Measured on 2026-09-01 against six real captures (downscaled 368x800) plus a
+full-resolution simulator capture:
+
+- **The coordinate flip is correct**, which was the one thing that had to be. The
+  tesseract adapter reports pixels from the top-left and Vision reports normalized
+  from the bottom-left; across four real captures, 22 of 23 strings both backends
+  read agree on the resulting tap-y to within 0.006. (The one outlier is a screen
+  with two "About" labels, where the backends matched different instances.) A wrong
+  flip would have sent every system-alert dismissal to the mirror image of the
+  button.
+- tesseract recovers ~61% of the words Vision does on app screens, and ~47% on a
+  sparse springboard capture, where it also missed the frozen "9:41" clock that
+  Vision read. Chrome-heavy, low-text screens are its worst case. Tuning did not
+  move it:
+  `--psm 6/11/12/3/4`, `--oem 1`, and a confidence floor all landed within a
+  point of each other.
+- The decisions that gate a capture transfer intact. Landmark containment — the
+  strong signal — passed on the right screen and scored 0.00 on the wrong one
+  under both backends. Same-screen jaccard is 1.00 on both; different-screen
+  jaccard moves *down* (0.88 -> 0.75, 0.59 -> 0.48), which makes the
+  `bogus-param` probe more conservative rather than less.
+- The weak `deeplink-text` fallback (`j >= 0.35`) is equally blunt on both: this
+  app's screens share enough chrome that different screens score 0.48-0.88. That
+  is a pre-existing property, not a tesseract regression, but it means a route
+  with no landmarks is barely verified on either platform. Committed landmarks
+  remain the only strong signal — say so in the docs rather than tuning 0.35.
+
+The run summary and the PR comment now name the OCR backend whenever it is not
+Vision, so a drift warning from a Linux run can be read with the right amount of
+suspicion.
+
 ## Drifted flows have no repair path without an agent
 
 `effort=deterministic` (now the automatic choice when no agent key is set) makes

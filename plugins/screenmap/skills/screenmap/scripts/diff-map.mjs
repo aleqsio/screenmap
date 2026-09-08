@@ -6,9 +6,14 @@
 //       reads  <diffDir>/base/graph.json, head/graph.json, changed-files.txt
 //       writes <diffDir>/suspects.json   (the capture work-list)
 //
-//   node diff-map.mjs pack <diffDir> [--out <file.appmapdiff>]
+//   node diff-map.mjs pack <diffDir> [--out <file.appmapdiff>] [--platforms ios,android]
 //       reads  the above + pr.json (optional) + base|head/screens + base|head/capture-status.json (optional)
 //       writes <diffDir>/diff.json and the .appmapdiff zip
+//
+//       With --platforms naming more than one, screenshots are read from and
+//       written to <side>/screens/<platform>/ and each node carries a
+//       `captures` map; with one (the default) the single-platform layout is
+//       unchanged, so existing bundles and viewers keep working.
 
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
@@ -232,12 +237,24 @@ const edges = []
 for (const [k, e] of headEdges) if (!baseEdges.has(k)) edges.push({ from: e.from, to: e.to, status: 'A', raw: e.raw ?? null, target: e.target ?? null })
 for (const [k, e] of baseEdges) if (!headEdges.has(k)) edges.push({ from: e.from, to: e.to, status: 'D', raw: e.raw ?? null, target: e.target ?? null })
 
-const shots = (side) => {
-  const d = path.join(diffDir, side, 'screens')
+const PLATFORM_LABELS = { ios: 'ios-simulator', android: 'android-emulator' }
+const platforms = String(opts.platforms ?? 'ios').split(',').map((s) => s.trim()).filter(Boolean)
+const multi = platforms.length > 1
+const shotDir = (side, platform) => path.join(diffDir, side, 'screens', ...(multi ? [platform] : []))
+const shots = (side, platform) => {
+  const d = shotDir(side, platform)
   return fs.existsSync(d) ? fs.readdirSync(d).filter((f) => /\.(png|jpe?g|webp)$/i.test(f)) : []
 }
-const baseShots = shots('base')
-const headShots = shots('head')
+// per-platform file lists, plus the union each side's state-diff works from: a
+// variant captured on either platform is a variant of that screen
+const shotsByPlatform = { base: {}, head: {} }
+for (const side of ['base', 'head']) for (const pf of platforms) shotsByPlatform[side][pf] = shots(side, pf)
+const allShots = (side) => [...new Set(platforms.flatMap((pf) => shotsByPlatform[side][pf]))]
+const baseShots = allShots('base')
+const headShots = allShots('head')
+// allShots() dedupes by filename across platforms because a state variant is a
+// state of the screen wherever it was captured; the packed file count is the sum
+const countShots = (side) => platforms.reduce((n, pf) => n + shotsByPlatform[side][pf].length, 0)
 
 const annotated = suspects.capture.map(({ side, slug, urlPath, ...n }) => ({ ...n, ...noteFor(n.id) }))
 
@@ -295,27 +312,36 @@ const diff = {
 }
 fs.writeFileSync(path.join(diffDir, 'diff.json'), JSON.stringify(diff, null, 2))
 
-// per-side map.json, same node mapping as pack-map.mjs
-const sideMap = (graph, side, shotFiles) => {
-  const captureStatus = readJson(path.join(diffDir, side, 'capture-status.json'), {})
+// per-side map.json, same node mapping as pack-map.mjs. With several platforms
+// each node carries a `captures` map and `capture` mirrors the first platform,
+// so a viewer that predates multi-platform still renders the side.
+const captureOf = (r, cs, shotFiles, prefix) => {
+  const baseShot = shotFiles.find((f) => f.replace(/\.\w+$/, '') === r.slug)
+  const stateShots = shotFiles
+    .filter((f) => f.startsWith(r.slug + '--'))
+    .map((f) => ({ name: f.replace(/\.\w+$/, '').slice(r.slug.length + 2), screenshot: prefix + f }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+  return {
+    status: cs.status ?? (baseShot ? 'ok' : 'missing'),
+    note: cs.note ?? null,
+    needsNavigation: cs.needsNavigation ?? false,
+    screenshot: baseShot ? prefix + baseShot : null,
+    states: stateShots,
+  }
+}
+const sideMap = (graph, side) => {
+  const raw = readJson(path.join(diffDir, side, 'capture-status.json'), {})
+  // per-platform status when multi, flat when not
+  const statusFor = (pf) => (multi ? raw[pf] ?? {} : raw)
   const nodes = graph.routes.map((r) => {
-    const cs = captureStatus[r.id] ?? {}
-    const baseShot = shotFiles.find((f) => f.replace(/\.\w+$/, '') === r.slug)
-    const stateShots = shotFiles
-      .filter((f) => f.startsWith(r.slug + '--'))
-      .map((f) => ({ name: f.replace(/\.\w+$/, '').slice(r.slug.length + 2), screenshot: 'screens/' + f }))
-      .sort((a, b) => a.name.localeCompare(b.name))
+    const per = Object.fromEntries(platforms.map((pf) => [pf,
+      captureOf(r, statusFor(pf)[r.id] ?? {}, shotsByPlatform[side][pf], multi ? `screens/${pf}/` : 'screens/')]))
     return {
       id: r.id, urlPath: r.urlPath, file: r.file ?? null, slug: r.slug,
       group: r.layoutDir ?? '', navigator: r.navigator ?? null, params: r.params ?? [],
       presentation: r.presentation ?? null, stateHints: r.stateHints ?? [],
-      capture: {
-        status: cs.status ?? (baseShot ? 'ok' : 'missing'),
-        note: cs.note ?? null,
-        needsNavigation: cs.needsNavigation ?? false,
-        screenshot: baseShot ? 'screens/' + baseShot : null,
-        states: stateShots,
-      },
+      capture: per[platforms[0]],
+      ...(multi ? { captures: per } : {}),
     }
   })
   return { nodes, edges: graph.edges ?? [], flows: [] }
@@ -327,16 +353,20 @@ const sideMeta = (graph, side) => ({
   commit: pr?.[side + 'Sha'] ?? null,
   generatedAt: graph.generatedAt ?? null,
 })
+// --device may name one device or, with several platforms, a comma-separated
+// list in the same order as --platforms
+const deviceNames = String(opts.device ?? '').split(',').map((s) => s.trim())
 const manifest = {
-  formatVersion: 1,
+  formatVersion: multi ? 2 : 1,
   kind: 'diff',
-  generator: 'expo-map/2.0',
+  generator: 'screenmap/2.0',
   app: {
     name: appName,
     scheme: headGraph.scheme ?? null,
-    platform: 'ios-simulator',
-    device: opts.device ?? null,
+    platform: PLATFORM_LABELS[platforms[0]] ?? platforms[0],
+    device: deviceNames[0] || null,
     mode: headGraph.mode ?? null,
+    ...(multi ? { platforms: platforms.map((pf, i) => ({ platform: pf, label: PLATFORM_LABELS[pf] ?? pf, device: deviceNames[i] || null })) } : {}),
   },
   base: sideMeta(baseGraph, 'base'),
   head: sideMeta(headGraph, 'head'),
@@ -348,10 +378,14 @@ const stage = fs.mkdtempSync(path.join(diffDir, '.pack-'))
 try {
   fs.writeFileSync(path.join(stage, 'manifest.json'), JSON.stringify(manifest, null, 2))
   fs.writeFileSync(path.join(stage, 'diff.json'), JSON.stringify(diff, null, 2))
-  for (const [side, graph, files] of [['base', baseGraph, baseShots], ['head', headGraph, headShots]]) {
+  for (const [side, graph] of [['base', baseGraph], ['head', headGraph]]) {
     fs.mkdirSync(path.join(stage, side, 'screens'), { recursive: true })
-    fs.writeFileSync(path.join(stage, side, 'map.json'), JSON.stringify(sideMap(graph, side, files), null, 2))
-    for (const f of files) fs.copyFileSync(path.join(diffDir, side, 'screens', f), path.join(stage, side, 'screens', f))
+    fs.writeFileSync(path.join(stage, side, 'map.json'), JSON.stringify(sideMap(graph, side), null, 2))
+    for (const pf of platforms) {
+      const dest = path.join(stage, side, 'screens', ...(multi ? [pf] : []))
+      fs.mkdirSync(dest, { recursive: true })
+      for (const f of shotsByPlatform[side][pf]) fs.copyFileSync(path.join(shotDir(side, pf), f), path.join(dest, f))
+    }
   }
   const slug = pr?.number ? `pr${pr.number}` : `${(pr?.baseSha ?? 'base').slice(0, 7)}..${(pr?.headSha ?? 'head').slice(0, 7)}`
   const outPath = path.resolve(opts.out ?? path.join(diffDir, `${appName}-${slug}.appmapdiff`))
@@ -359,7 +393,7 @@ try {
   execFileSync('zip', ['-r', '-q', outPath, 'manifest.json', 'diff.json', 'base', 'head'], { cwd: stage })
   const kb = Math.round(fs.statSync(outPath).size / 1024)
   const n = (s) => diff.nodes.filter((c) => c.status === s).length
-  console.log(`wrote ${outPath} (${kb} KB) — nodes: ${n('A')}A/${n('M')}M/${n('D')}D · edges: ${edges.filter((e) => e.status === 'A').length}A/${edges.filter((e) => e.status === 'D').length}D · states: ${states.length} · shots: ${baseShots.length} base + ${headShots.length} head`)
+  console.log(`wrote ${outPath} (${kb} KB) — nodes: ${n('A')}A/${n('M')}M/${n('D')}D · edges: ${edges.filter((e) => e.status === 'A').length}A/${edges.filter((e) => e.status === 'D').length}D · states: ${states.length} · shots: ${countShots('base')} base + ${countShots('head')} head`)
 } finally {
   fs.rmSync(stage, { recursive: true, force: true })
 }

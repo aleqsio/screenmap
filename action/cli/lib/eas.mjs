@@ -1,10 +1,17 @@
-// EAS dev-client resolution: the Action owns no build pipeline. A simulator
-// dev client comes from EAS — reuse the newest finished build whose
-// fingerprint matches the checkout (JS-only changes never rebuild), otherwise
-// trigger `eas build` on Expo's infrastructure and wait. Requires EXPO_TOKEN
-// and an EAS-linked project (extra.eas.projectId) with a simulator profile in
-// eas.json, e.g.:
-//   "development-simulator": { "developmentClient": true, "distribution": "internal", "ios": { "simulator": true } }
+// EAS dev-client resolution: the Action owns no build pipeline. A dev client
+// comes from EAS — reuse the newest finished build whose fingerprint matches
+// the checkout (JS-only changes never rebuild), otherwise trigger `eas build`
+// on Expo's infrastructure and wait. Requires EXPO_TOKEN and an EAS-linked
+// project (extra.eas.projectId) with a profile per platform in eas.json:
+//
+//   "development-simulator": { "developmentClient": true, "distribution": "internal",
+//                              "ios": { "simulator": true } }
+//   "development-emulator":  { "developmentClient": true, "distribution": "internal",
+//                              "android": { "buildType": "apk" } }
+//
+// `buildType: "apk"` is not optional on Android: EAS defaults to an .aab, which
+// an emulator cannot install, and the failure surfaces much later as a
+// confusing adb error.
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -29,10 +36,12 @@ function parseJson(text, what) {
   return JSON.parse(text.slice(start, Math.max(text.lastIndexOf(']'), text.lastIndexOf('}')) + 1))
 }
 
-export function fingerprintOf(projectDir, eas) {
+export const DEFAULT_PROFILES = { ios: 'development-simulator', android: 'development-emulator' }
+
+export function fingerprintOf(projectDir, eas, platform = 'ios') {
   // must be eas-cli's own computation — a bare @expo/fingerprint run hashes
   // differently from what EAS records on builds, so reuse would never match
-  const r = run(eas[0], [...eas.slice(1), 'fingerprint:generate', '--platform', 'ios', '--non-interactive', '--json'], { cwd: projectDir, env: process.env })
+  const r = run(eas[0], [...eas.slice(1), 'fingerprint:generate', '--platform', platform, '--non-interactive', '--json'], { cwd: projectDir, env: process.env })
   if (r.status !== 0) { log('fingerprint failed (will build fresh):', (r.stderr || r.stdout || '').slice(-300)); return null }
   try { return parseJson(r.stdout, 'fingerprint').hash ?? null } catch { return null }
 }
@@ -46,8 +55,16 @@ function download(url, dest) {
   if (r.status !== 0) throw new Error(`download failed: ${(r.stderr || '').slice(-300)}`)
 }
 
-function extractApp(archive, destDir) {
+// iOS artifacts arrive as a tarball around a .app bundle; Android artifacts are
+// the installable file itself, so there is nothing to unpack.
+function extractApp(archive, destDir, platform) {
   ensureDir(destDir)
+  if (platform === 'android') {
+    if (/\.aab$/.test(archive)) throw new Error('EAS returned an .aab, which no emulator can install — set "android": { "buildType": "apk" } on the build profile')
+    const dest = path.join(destDir, path.basename(archive))
+    fs.cpSync(archive, dest)
+    return dest
+  }
   if (/\.(tar\.gz|tgz)$/.test(archive)) {
     const r = run('tar', ['-xzf', archive, '-C', destDir])
     if (r.status !== 0) throw new Error(`extract failed: ${(r.stderr || '').slice(-300)}`)
@@ -59,40 +76,47 @@ function extractApp(archive, destDir) {
   return path.join(destDir, app)
 }
 
+// The artifact URL keeps its own extension; naming the download after it is
+// what lets extractApp tell an .apk from an .aab from a tarball.
+function archiveName(url, platform) {
+  const ext = (url.split('?')[0].match(/\.(apk|aab|tar\.gz|tgz|zip)$/i) ?? [])[0]
+  return `client${ext ?? (platform === 'android' ? '.apk' : '.tar.gz')}`
+}
+
 // Returns { appPath, reused, fingerprint, buildId }. Reuse is best-effort:
 // any step of the fingerprint match failing falls through to a fresh build.
-export function resolveApp({ projectDir, profile, workDir }) {
+export function resolveApp({ projectDir, profile, workDir, platform = 'ios' }) {
   if (!process.env.EXPO_TOKEN) throw new Error('EXPO_TOKEN not set — pass expo_token (or provide app_path / a prebuilt client)')
   const eas = easCommand()
   const cwdOpts = { cwd: projectDir, env: process.env }
   const dest = ensureDir(workDir)
 
-  const fingerprint = fingerprintOf(projectDir, eas)
+  const fingerprint = fingerprintOf(projectDir, eas, platform)
   if (fingerprint) {
-    const r = run(eas[0], [...eas.slice(1), 'build:list', '--platform', 'ios', '--status', 'finished',
+    const r = run(eas[0], [...eas.slice(1), 'build:list', '--platform', platform, '--status', 'finished',
       '--build-profile', profile, '--fingerprint-hash', fingerprint, '--limit', '1', '--json', '--non-interactive'], cwdOpts)
     if (r.status === 0) {
       try {
         const hit = parseJson(r.stdout, 'build:list')[0]
         const url = artifactUrl(hit)
         if (url) {
-          log(`EAS: reusing build ${hit.id} (fingerprint ${fingerprint.slice(0, 12)})`)
-          const archive = path.join(dest, 'client.tar.gz')
+          log(`EAS: reusing ${platform} build ${hit.id} (fingerprint ${fingerprint.slice(0, 12)})`)
+          const archive = path.join(dest, archiveName(url, platform))
           download(url, archive)
-          return { appPath: extractApp(archive, path.join(dest, 'client')), reused: true, fingerprint, buildId: hit.id }
+          return { appPath: extractApp(archive, path.join(dest, 'client'), platform), reused: true, fingerprint, buildId: hit.id, platform }
         }
       } catch (e) { log('EAS reuse lookup failed (will build fresh):', e.message) }
     } else log('EAS build:list failed (will build fresh):', (r.stderr || r.stdout || '').slice(-300))
   }
 
-  log(`EAS: no reusable build — building profile "${profile}" (this runs on EAS, not this runner)`)
-  const b = run(eas[0], [...eas.slice(1), 'build', '--platform', 'ios', '--profile', profile,
+  log(`EAS: no reusable ${platform} build — building profile "${profile}" (this runs on EAS, not this runner)`)
+  const b = run(eas[0], [...eas.slice(1), 'build', '--platform', platform, '--profile', profile,
     '--non-interactive', '--json', '--wait'], cwdOpts)
   if (b.status !== 0) throw new Error(`eas build failed: ${(b.stderr || b.stdout || '').slice(-800)}`)
   const build = [].concat(parseJson(b.stdout, 'build'))[0]
   const url = artifactUrl(build)
   if (!url) throw new Error(`eas build finished without an artifact URL (status ${build?.status})`)
-  const archive = path.join(dest, 'client.tar.gz')
+  const archive = path.join(dest, archiveName(url, platform))
   download(url, archive)
-  return { appPath: extractApp(archive, path.join(dest, 'client')), reused: false, fingerprint, buildId: build.id }
+  return { appPath: extractApp(archive, path.join(dest, 'client'), platform), reused: false, fingerprint, buildId: build.id, platform }
 }

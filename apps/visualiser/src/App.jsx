@@ -17,6 +17,9 @@ export default function App() {
         setMode={b.setMode}
         hasChanges={b.hasChanges}
         overlaid={b.overlaid}
+        platforms={b.platforms}
+        platform={b.platform}
+        setPlatform={b.setPlatform}
         onOpenBuffer={b.open}
         onCloseChanges={b.closeChanges}
       />

@@ -86,7 +86,25 @@ export function agentInfo(config) {
   return { provider: p.custom ? 'custom command' : p.name, keyEnv: p.keyEnv ?? null, hasKey: p.keyEnv ? !!env[p.keyEnv] : null }
 }
 
-export function runAgent({ projectDir, config, screens, scheme, udid, bundleId, outScreensDir, outFlowsDir, notesPath, summaryPath, mode, prContext }) {
+// What the agent needs to know that differs per platform: which CLI drives the
+// device, what the app id is called, and what the device is. argent is the same
+// on both — its device tools take an iOS UDID or an Android serial alike.
+const PLATFORM_BRIEF = {
+  ios: {
+    cli: '`xcrun simctl` for deep links/screenshots',
+    deepLink: (id, url) => `xcrun simctl openurl ${id} "${url}"`,
+    shot: (id, out) => `xcrun simctl io ${id} screenshot ${out}`,
+    device: 'simulator', appId: 'bundle',
+  },
+  android: {
+    cli: '`adb` for deep links/screenshots',
+    deepLink: (id, url) => `adb -s ${id} shell am start -a android.intent.action.VIEW -d '${url}'`,
+    shot: (id, out) => `adb -s ${id} exec-out screencap -p > ${out}`,
+    device: 'device', appId: 'package',
+  },
+}
+
+export function runAgent({ projectDir, config, screens, scheme, udid, bundleId, platform = 'ios', deviceName, outScreensDir, outFlowsDir, notesPath, summaryPath, mode, prContext }) {
   const info = agentInfo(config)
   if (!screens.length) return { ran: false, reason: 'nothing to explore', ...info }
   if (!config.agent.enabled) return { ran: false, reason: config.effort === 'deterministic' ? 'effort=deterministic — flows replay, nothing is re-checked' : 'agent disabled in .screenmap/config.json', ...info }
@@ -101,7 +119,13 @@ export function runAgent({ projectDir, config, screens, scheme, udid, bundleId, 
   const repoSkill = path.join(projectDir, config.skillFile)
   const repoSkillText = fs.existsSync(repoSkill) ? fs.readFileSync(repoSkill, 'utf8') : null
 
-  const prompt = `You are running the screenmap skill's capture phases headlessly in CI (no simulator MCP — use \`xcrun simctl\` for deep links/screenshots and the \`argent\` CLI for taps/swipes: \`argent run <tool> …\` (\`argent tools\` lists them; if \`argent\` is not on PATH, run \`npx -y @swmansion/argent@0.21.0\` from a directory OUTSIDE the project, e.g. /tmp, because this repo's devEngines pin breaks npx inside it)). The app is already running on simulator ${udid} (bundle ${bundleId}, scheme ${scheme}://), Metro is up. Do not rebuild, reinstall, or checkout anything.
+  const brief = PLATFORM_BRIEF[platform] ?? PLATFORM_BRIEF.ios
+  const device = deviceName ?? config.device ?? brief.device
+
+  const prompt = `You are running the screenmap skill's capture phases headlessly in CI on ${platform.toUpperCase()} (no simulator MCP — use ${brief.cli} and the \`argent\` CLI for taps/swipes: \`argent run <tool> …\` (\`argent tools\` lists them; its device tools take this ${brief.device}'s id directly; if \`argent\` is not on PATH, run \`npx -y @swmansion/argent@0.21.0\` from a directory OUTSIDE the project, e.g. /tmp, because this repo's devEngines pin breaks npx inside it)). The app is already running on ${brief.device} ${udid} (${brief.appId} ${bundleId}, scheme ${scheme}://), Metro is up. Do not rebuild, reinstall, or checkout anything.
+
+Deep link:  ${brief.deepLink(udid, `${scheme}://some/path`)}
+Screenshot: ${brief.shot(udid, `${outScreensDir}/<slug>.png`)}
 
 Read the skill at ${SKILL_DIR}/SKILL.md for conventions (capture naming, flow recording format, safety rules: never tap destructive/purchase/sign-out controls, never record credentials). The project lives at ${projectDir}. All output paths below are absolute — write to them exactly.
 ${repoSkillText ? `\nProject-specific guidance (.screenmap/SKILL.md) — follow it:\n---\n${repoSkillText}\n---\n` : ''}
@@ -110,13 +134,13 @@ ${budgeted.map((s) => `- ${s.id}  urlPath=${s.urlPath}  slug=${s.slug}  deepLink
 
 Rules:
 1. Screenshots go to ${outScreensDir}/<slug>.png (state variants: <slug>--<state>.png). Use exactly these slugs.
-2. Flows go to ${outFlowsDir}/ as argent YAML + .meta.json sidecars (formatVersion 2) — nav-<slug> for the tap path from app launch (\`${scheme}://\`), visit-<slug> for the bare deep link, plus one flow per state variant you capture. Coordinates normalized 0–1 for a ${config.device}. Every sidecar MUST include \`"landmarks": [2–5 words visible on the arrival screen that identify it — titles/section headers/fixed labels, never live content]\`; CI verifies replays by OCR-ing for them.
+2. Flows go to ${outFlowsDir}/ as argent YAML + .meta.json sidecars (formatVersion 2) — nav-<slug> for the tap path from app launch (\`${scheme}://\`), visit-<slug> for the bare deep link, plus one flow per state variant you capture. Coordinates normalized 0–1 for a ${device}. Every sidecar MUST include \`"landmarks": [2–5 words visible on the arrival screen that identify it — titles/section headers/fixed labels, never live content]\`; CI verifies replays by OCR-ing for them.
 3. Prefer the deep link first; if it shows an error/not-found, find real params (public API, other screens) and note what you used.
 4. Write ${notesPath}: JSON { "<routeId>": "one sentence describing what this screen shows${mode === 'pr' ? ' / what visibly changed in this PR' : ''}" } for each screen you handled${mode === 'pr' ? ', or { "note": "...", "verdict": "unaffected" } if the PR diff shows no visible change there' : ''}.
 5. Write ${summaryPath}: JSON { "captured": [routeIds], "skipped": [{ "id", "why" }], "flows": [flow names] } when done.
 6. Budget: these ${budgeted.length} screens only. Be economical — no broad exploration.${prContext ? `\n\nPR context: ${prContext}` : ''}`
 
-  log(`agent (${provider.name}): exploring ${budgeted.length} screen(s)${skipped.length ? `, ${skipped.length} over budget` : ''}`)
+  log(`agent (${provider.name}, ${platform}): exploring ${budgeted.length} screen(s)${skipped.length ? `, ${skipped.length} over budget` : ''}`)
   let r
   if (provider.custom) {
     // custom command template: {promptFile} is substituted; the prompt is also

@@ -1,4 +1,4 @@
-# .scrmap bundle format (v2)
+# .scrmap bundle format (v3)
 
 A `.scrmap` file is a plain **zip** containing everything needed to render an application's
 navigation map: the graph, screenshots, capture verdicts, and replayable flows.
@@ -26,6 +26,49 @@ myapp-2026-08-08.scrmap        (zip)
 ```
 
 (v1 bundles inlined JSON flows in `map.json`; viewers should keep reading them.)
+
+## Platforms (`formatVersion: 3`)
+
+A bundle captured on one platform is exactly the v2 layout above and stays
+`formatVersion: 2` — there is no platform axis to add. A bundle captured on
+several becomes `formatVersion: 3`:
+
+```
+├── manifest.json              # app.platforms lists them, in capture order
+├── map.json                   # each node gains `captures`
+└── screens/
+    ├── ios/*.png
+    └── android/*.png
+```
+
+`manifest.app` keeps `platform` and `device` pointing at the **first** platform,
+and every node keeps a `capture` mirroring that same platform, so a v2 reader
+renders a v3 bundle as a single-platform map rather than failing or showing every
+screen as missing. A v3-aware reader uses `app.platforms` and `node.captures`:
+
+```jsonc
+"app": {
+  "platform": "ios-simulator",       // first platform, for v2 readers
+  "device": "iPhone 17 Pro",         // ditto
+  "platforms": [
+    { "platform": "ios", "label": "ios-simulator", "device": "iPhone 17 Pro" },
+    { "platform": "android", "label": "android-emulator", "device": "Pixel 7" }
+  ]
+}
+```
+
+```jsonc
+"captures": {                        // same shape as `capture`, one per platform
+  "ios":     { "status": "ok", "screenshot": "screens/ios/Profile.png", "states": [...] },
+  "android": { "status": "error-boundary", "note": "crashes on deep link",
+               "screenshot": "screens/android/Profile.png", "states": [] }
+}
+```
+
+Status is per platform, which is the point: a screen that renders on iOS and
+crashes on Android is one node with two verdicts, not two maps to compare by eye.
+`capture-status.json` is keyed by platform first in a v3 bundle
+(`{"android": {"<routeId>": {…}}}`) and by route id in a v2 one.
 
 ## manifest.json
 
