@@ -210,7 +210,20 @@ runs:
           # is not guaranteed, and a missing one surfaces as a bare
           # "command not found" three steps later. Already-present packages are
           # a no-op, so this costs nothing on a warm image.
-          yes | sdkmanager --install "platform-tools" "emulator" "${{ inputs.android_system_image }}" >/dev/null
+          #
+          # `yes |` needs care: GitHub runs `shell: bash` with -eo pipefail, and
+          # `yes` is killed by SIGPIPE the moment sdkmanager stops reading, so
+          # pipefail reports the whole pipeline as failed even on a clean
+          # install. Take sdkmanager's own status out of PIPESTATUS instead.
+          set +o pipefail
+          yes 2>/dev/null | sdkmanager --install "platform-tools" "emulator" "${{ inputs.android_system_image }}" >/tmp/sdkmanager.log 2>&1
+          rc=${PIPESTATUS[1]}
+          set -o pipefail
+          if [ "$rc" -ne 0 ]; then
+            tail -30 /tmp/sdkmanager.log
+            echo "::error::sdkmanager failed to install platform-tools/emulator/${{ inputs.android_system_image }}"
+            exit 1
+          fi
           command -v avdmanager >/dev/null || { echo "::error::avdmanager not found under $sdk/cmdline-tools/latest/bin"; exit 1; }
           if ! avdmanager list avd -c | grep -qx "${{ inputs.avd }}"; then
             echo no | avdmanager create avd -n "${{ inputs.avd }}" -k "${{ inputs.android_system_image }}" --force
