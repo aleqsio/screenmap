@@ -92,6 +92,13 @@ inputs:
       ios (needs developmentClient + ios.simulator), development-emulator for android (needs
       developmentClient + android.buildType "apk" — an .aab cannot be installed on an emulator).
     default: ""
+  full:
+    description: >-
+      (baseline) Recapture every screen instead of reusing the unchanged ones from the previous
+      map. The baseline workflow template has exposed this as a workflow_dispatch input since the
+      beginning, but nothing ever passed it through, so "Rebuild the whole map" quietly did an
+      incremental run.
+    default: "false"
   flows_pr:
     description: "(baseline) Open a PR against the default branch with flows the agent recorded"
     default: "true"
@@ -418,7 +425,9 @@ runs:
             --pr "${{ github.event.pull_request.number }}" --title "${{ github.event.pull_request.title }}" --url "${{ github.event.pull_request.html_url }}" \
             --base-ref "${{ github.event.pull_request.base.ref }}" --head-ref "${{ github.event.pull_request.head.ref }}" > .screenmap-ci/summary.json
         else
-          screenmap-ci baseline --project "$proj" $( [ "${{ steps.baseline.outputs.found }}" = "true" ] && echo "--previous .screenmap-ci/baseline.scrmap" ) > .screenmap-ci/summary.json
+          screenmap-ci baseline --project "$proj" \
+            $( [ "${{ steps.baseline.outputs.found }}" = "true" ] && echo "--previous .screenmap-ci/baseline.scrmap" ) \
+            $( [ "${{ inputs.full }}" = "true" ] && echo "--full" ) > .screenmap-ci/summary.json
         fi
         bundle=$(python3 -c 'import json;print(json.load(open(".screenmap-ci/summary.json"))["bundle"])')
         echo "bundle=$bundle" >> "$GITHUB_OUTPUT"
