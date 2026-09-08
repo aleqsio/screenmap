@@ -54,6 +54,36 @@ which platforms they hold (`platformsIn()`), a side that is not there reports
 input whose platform does not match the one it is being merged as rather than
 silently mislabelling it.
 
+## The screenmaps branch has no platform in its paths
+
+Found while planning the first Android CI run, on 2026-09-08. Not fixed.
+
+A baseline publishes to `main/<sha7>.scrmap` and `main/latest.scrmap`, and a PR
+run restores `main/<base_sha7>.scrmap` falling back to `main/latest.scrmap`.
+Nothing in either path names a platform. So in a repo that already maps iOS, an
+Android baseline overwrites the iOS map, and the next iOS PR run restores an
+Android baseline: the diff's static verdicts still hold, but every base-side
+capture is missing or belongs to the wrong device.
+
+The workaround for a first experiment is the existing `screenmaps_branch` input
+— point the Android runs at their own branch and nothing collides. That is fine
+for a trial and wrong as an answer, because a repo mapping both platforms wants
+one map, not two branches.
+
+Deciding it properly means picking where the merge happens:
+
+1. **Per-platform paths plus a merged map.** Each platform publishes
+   `main/<platform>/latest.scrmap`; a merge job writes `main/latest.scrmap` from
+   them. PR runs restore the merged one, so the viewer keeps getting a single
+   bundle. Costs a third job and makes `latest.scrmap` a derived artifact.
+2. **Per-platform paths only**, with the viewer loading two bundles. Cheaper in
+   CI, but it pushes the merge onto every reader and the PR comment can only
+   show one.
+
+Whichever wins, existing repos have an unprefixed `main/latest.scrmap` that must
+keep resolving, or every repo loses its baseline on upgrade — the same hazard as
+the `appmaps` -> `screenmaps` branch rename.
+
 ## OCR recall on the Linux lane
 
 Measured on 2026-09-01 against six real captures (downscaled 368x800) plus a
