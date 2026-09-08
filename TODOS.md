@@ -44,22 +44,37 @@ non-interactively, so no keystore setup is needed; fingerprint reuse works
 (a rebuild collapsed to an 8-second download); and the baseline workflow's
 `full` input had never been wired to `--full`.
 
+### The PR lane, and the clock
+
+Both settled on 2026-09-08 by
+[screenmap-test#17](https://github.com/aleqsio/screenmap-test/pull/17), a
+one-file copy change to `/grind`.
+
+The diff lane works: suspects narrowed to exactly one node, only that screen was
+captured on the head side, the base side came from the Android baseline, and the
+sticky comment rendered with the before/after pair, the right reason
+("its own source changed"), the Android device name, and the tesseract line.
+
+**The clock is a non-issue.** Base and head agree: neither shows one. The
+status-bar strip in both contains only the app's own eyebrow text, because this
+app draws edge-to-edge over that area. The `9:41` seen in the run with the ANR
+dialog up was the anomaly — the dialog was changing the window insets. Demo mode
+is still worth setting for the icons, but on an edge-to-edge app the clock it
+pins may never be visible, and that is fine: what a diff needs is base and head
+agreeing, which they do.
+
 ### Still unverified
 
-- **`muteDevMenu()` remains a guess.** No dev-menu overlay appeared in the
-  captures, but this app may simply not show one where iOS would, so the
+- **`muteDevMenu()` remains a guess.** No dev-menu overlay appeared in any
+  capture, but this app may simply not show one where iOS would, so the
   SharedPreferences filename and keys are still unconfirmed. It stays
   best-effort and non-fatal.
-- **The status bar clock.** Demo mode's pinned icons show, and the run that had
-  the ANR dialog up also showed `9:41`; the run without it shows no clock at
-  all. The likeliest reading is that the app draws edge-to-edge over the clock
-  area and the dialog was changing the window insets — but that is a guess, and
-  the alternative is that a demo-mode broadcast is being dropped. It does not
-  affect a single run, where all eight captures agree. It would matter across
-  base and head: a clock present in one and absent in the other marks every
-  screen changed. Worth settling before the Android PR lane is trusted.
-- **The PR lane itself.** Only the baseline has run. The diff, its comment, and
-  the tesseract OCR line in it are still untested on a real PR.
+- **Flow replay on Android.** Every run so far was flowless — `0 by flow
+  replay`, everything deep-linked. argent's device tools take an Android serial,
+  but no committed flow has actually been replayed on one, so `replayFlow()` and
+  `verifyLanding()`'s landmark check are still untested on this platform.
+- **The agent lane on Android.** Deliberately off (no key) for these runs, so the
+  platform-specific prompt in `agent.mjs` has never been exercised.
 
 ## The screenmaps branch has no platform in its paths
 
