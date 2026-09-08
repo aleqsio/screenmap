@@ -217,6 +217,16 @@ runs:
         echo "$sdk/platform-tools" >> "$GITHUB_PATH"
         echo "$sdk/emulator" >> "$GITHUB_PATH"
         command -v sdkmanager >/dev/null || { echo "::error::sdkmanager not found under $sdk/cmdline-tools/latest/bin"; exit 1; }
+        # Pin where AVDs live. avdmanager and emulator each resolve this from a
+        # different chain ($ANDROID_AVD_HOME, then $ANDROID_SDK_HOME/.android/avd
+        # for one and $HOME/.android/avd for the other), so on a runner that sets
+        # ANDROID_SDK_HOME they write and read different directories: the AVD is
+        # created successfully and `emulator -list-avds` still comes back empty.
+        # Setting it explicitly makes both agree, and GITHUB_ENV carries it to
+        # the step that actually boots the device.
+        export ANDROID_AVD_HOME="$HOME/.android/avd"
+        mkdir -p "$ANDROID_AVD_HOME"
+        echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
         # a device already attached (self-hosted runner, or an earlier step) wins,
         # and needs none of the SDK packages below
         if command -v adb >/dev/null && adb devices | awk 'NR>1 && $2=="device"' | grep -q .; then
@@ -247,7 +257,6 @@ runs:
           fi
           # the driver (lib/android.mjs) boots it and waits for sys.boot_completed;
           # starting it here would just duplicate that logic
-          echo "AVD ${{ inputs.avd }} ready — the run boots it"
           # Gate on the emulator actually running. This used to be `|| true`,
           # which hid a qemu that could not load libpulse: the run went on to
           # spend seventeen minutes on an EAS build and only then failed, with
@@ -259,6 +268,17 @@ runs:
             exit 1
           fi
           head -1 /tmp/emulator-version.log
+          # …and on it agreeing that the AVD exists. Creating one successfully
+          # and having the emulator not see it is the failure this step is most
+          # prone to, and one the next step can only report as "no AVD defined".
+          if ! "$sdk/emulator/emulator" -list-avds | grep -qx "${{ inputs.avd }}"; then
+            echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME"
+            ls -la "$ANDROID_AVD_HOME" 2>&1 | head -20
+            echo "emulator -list-avds says: $("$sdk/emulator/emulator" -list-avds 2>&1 | tr '\n' ' ')"
+            echo "::error::AVD '${{ inputs.avd }}' was created but the emulator cannot see it"
+            exit 1
+          fi
+          echo "AVD ${{ inputs.avd }} ready — the run boots it"
         fi
 
     - name: Dev client (EAS or provided)
