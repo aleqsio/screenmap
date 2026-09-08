@@ -135,6 +135,13 @@ export function loadConfig(projectDir) {
     if (defined.packageName && !defined.appId) defined.appId = defined.packageName
     const envPath = process.env[`SCREENMAP_APP_PATH_${p.toUpperCase()}`] || (merged.platforms.length === 1 ? process.env.SCREENMAP_APP_PATH : null)
     if (envPath) defined.appPath = envPath // a prebuilt client (e.g. from EAS) beats on-disk discovery
+    // The Action provisions a specific simulator/AVD and has to be able to say
+    // which one: without this the driver falls back to "whatever is first",
+    // which on a runner that already has other devices boots something the
+    // Action never set up. Config still wins — this is the CI default, not an
+    // override of an explicit choice.
+    const envDevice = process.env[`SCREENMAP_DEVICE_${p.toUpperCase()}`]
+    if (envDevice && !user[p]?.device) defined.device = envDevice
     merged[p] = defined
   }
   return merged

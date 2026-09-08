@@ -117,7 +117,12 @@ export async function ensureBooted(config) {
   if (booted.length) {
     const pick = config.device ? booted.find((d) => d.name === config.device) ?? booted[0] : booted[0]
     log(`android device already available: ${pick.name} (${pick.id})`)
-    await waitBootComplete(pick.id, 60000)
+    // adb seeing a device is not the device being usable. Returning a
+    // half-booted one means install and launch fail later with opaque
+    // package-manager errors instead of a boot timeout that says what happened.
+    if (!(await waitBootComplete(pick.id, 60000))) {
+      throw new Error(`${pick.name} (${pick.id}) is visible to adb but never finished booting (sys.boot_completed)`)
+    }
     return pick
   }
   const bin = emulatorPath()
@@ -126,7 +131,10 @@ export async function ensureBooted(config) {
   if (error) throw new Error(`no Android device connected, and the emulator could not be queried — ${error}`)
   if (!avds.length) throw new Error('no Android device connected and no AVD defined — create one with avdmanager')
   const avd = avds.find((a) => a === config.device) ?? avds[0]
-  log(`booting AVD ${avd}`)
+  if (config.device && avd !== config.device) {
+    log(`warning: AVD "${config.device}" not found among [${avds.join(', ')}] — booting ${avd} instead`)
+  }
+  log(`booting AVD ${avd}${avds.length > 1 ? ` (of ${avds.length} defined)` : ''}`)
   // detached: the emulator runs for the whole session and must outlive this call
   const proc = spawn(bin, ['-avd', avd, '-no-snapshot', '-no-boot-anim', '-no-audio',
     ...(process.env.SCREENMAP_EMULATOR_WINDOW === '1' ? [] : ['-no-window']),
@@ -135,7 +143,12 @@ export async function ensureBooted(config) {
   const deadline = Date.now() + 300000
   while (Date.now() < deadline) {
     const now = listBooted()
-    if (now.length) { await waitBootComplete(now[0].id); return now[0] }
+    if (now.length) {
+      if (!(await waitBootComplete(now[0].id))) {
+        throw new Error(`AVD ${avd} started but never finished booting (sys.boot_completed) — a software-rendered emulator can be too slow to come up`)
+      }
+      return now[0]
+    }
     await sleep(3000)
   }
   throw new Error(`AVD ${avd} did not come up within 5 minutes`)

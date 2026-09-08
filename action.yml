@@ -344,6 +344,10 @@ runs:
         AGENT_API_KEY: ${{ inputs.agent_api_key }}
         SCREENMAP_APP_PATH: ${{ steps.app.outputs.app }}
         SCREENMAP_PLATFORMS: ${{ inputs.platform }}
+        # the device this action actually provisioned, so the driver boots that
+        # one rather than whichever happens to be listed first
+        SCREENMAP_DEVICE_IOS: ${{ inputs.simulator }}
+        SCREENMAP_DEVICE_ANDROID: ${{ inputs.avd }}
         GH_TOKEN: ${{ inputs.github_token }}
       run: |
         set -e

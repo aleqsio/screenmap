@@ -113,13 +113,15 @@ export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, 
             {platforms.map((p) => (
               <Tooltip key={p.platform}>
                 <TooltipTrigger asChild>
-                  <ToggleGroupItem
-                    value={p.platform}
-                    aria-label={PLATFORM_LABEL[p.platform] ?? p.platform}
-                    className="data-[state=on]:bg-foreground data-[state=on]:text-background"
-                  >
-                    {PLATFORM_LABEL[p.platform] ?? p.platform}
-                  </ToggleGroupItem>
+                  <span>
+                    <ToggleGroupItem
+                      value={p.platform}
+                      aria-label={PLATFORM_LABEL[p.platform] ?? p.platform}
+                      className="data-[state=on]:bg-foreground data-[state=on]:text-background"
+                    >
+                      {PLATFORM_LABEL[p.platform] ?? p.platform}
+                    </ToggleGroupItem>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent>{p.device ?? p.label ?? p.platform}</TooltipContent>
               </Tooltip>
