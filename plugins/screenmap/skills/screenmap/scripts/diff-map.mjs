@@ -324,7 +324,7 @@ const captureOf = (r, cs, shotFiles, prefix) => {
   return {
     status: cs.status ?? (baseShot ? 'ok' : 'missing'),
     note: cs.note ?? null,
-    needsNavigation: cs.needsNavigation ?? false,
+    needsNavigation: cs.needsNavigation ?? r.reach === 'navigation-only',
     screenshot: baseShot ? prefix + baseShot : null,
     states: stateShots,
   }

@@ -8,6 +8,7 @@ import { Playhead, TransitionCard, ChangeCard, CommandSheet } from './Dock'
 import { flowResolution, isInteractive } from '../lib/loadBundle'
 import { layoutGraph, NODE_H, NODE_W } from '../lib/layout'
 import { flowForNode, replayCommand } from '../lib/replay'
+import { nodeLabel } from '../lib/label.js'
 
 const nodeTypes = { screen: ScreenNode }
 
@@ -418,7 +419,7 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, pla
   const panelItems = diffMode
     ? diff.nodes.map((d) => ({
         key: d.id, kind: d.status, mono: true, active: selectedNode === d.id, title: d.note ?? d.reason,
-        label: routeById[d.id]?.urlPath ?? d.id,
+        label: nodeLabel(routeById[d.id], d.id),
         onClick: () => { setSelectedEdge(null); setSelectedNode(d.id); focusNode(d.id) },
       }))
     : interactiveFlows.map((f) => ({
@@ -528,7 +529,7 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, pla
       {flow && stepView && (
         <Playhead
           title={flow.title ?? flow.name}
-          subjectPath={routeById[subjectId]?.urlPath ?? subjectId}
+          subjectPath={nodeLabel(routeById[subjectId], subjectId)}
           neighbours={neighboursMode}
           neighbourCount={neighbourCount}
           onShowNeighbours={() => setNeighboursMode(true)}
@@ -548,7 +549,7 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, pla
 
       {selectedDiffNode && !selectedEdge && !flow && (
         <ChangeCard
-          urlPath={selectedDiffNode.urlPath}
+          urlPath={nodeLabel(selectedDiffNode)}
           diff={selectedDiffNode.diff}
           states={(diff.states ?? []).filter((s) => s.node === selectedDiffNode.id && ['A', 'M', 'D'].includes(s.status))}
         />
@@ -556,8 +557,8 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, pla
 
       {selectedEdge && !flow && (
         <TransitionCard
-          from={routeById[selectedEdge.from]?.urlPath ?? selectedEdge.from}
-          to={routeById[selectedEdge.to]?.urlPath ?? selectedEdge.to}
+          from={nodeLabel(routeById[selectedEdge.from], selectedEdge.from)}
+          to={nodeLabel(routeById[selectedEdge.to], selectedEdge.to)}
           diffStatus={selectedEdge.diffStatus}
           observed={!!selectedEdge.observed}
           flows={selectedEdge.flows ?? []}

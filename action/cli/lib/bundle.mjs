@@ -28,7 +28,9 @@ export function graphFromMap(manifest, map) {
   return {
     generatedAt: manifest.generatedAt, projectRoot: null, scheme: manifest.app?.scheme ?? null, mode: manifest.app?.mode ?? null,
     routes: map.nodes.map((n) => ({
-      id: n.id, file: n.file, urlPath: n.urlPath, slug: n.slug, params: n.params ?? [], navigator: n.navigator,
+      id: n.id, file: n.file, urlPath: n.urlPath ?? null, slug: n.slug, params: n.params ?? [], navigator: n.navigator,
+      title: n.title ?? n.urlPath ?? n.id,
+      reach: n.reach ?? (n.urlPath ? 'deep-link' : 'navigation-only'),
       layoutDir: n.group ?? '', presentation: n.presentation ?? null, stateHints: n.stateHints ?? [],
     })),
     edges: map.edges ?? [],
@@ -114,7 +116,9 @@ function captureFor(r, cs, shotFiles, prefix) {
   return {
     status: cs.status ?? (baseShot ? 'ok' : 'missing'),
     note: cs.note ?? null,
-    needsNavigation: cs.needsNavigation ?? false,
+    // a route the provider says has no URL is navigation-only by definition,
+    // whatever the capture verdict says
+    needsNavigation: cs.needsNavigation ?? r.reach === 'navigation-only',
     screenshot: baseShot ? prefix + baseShot : null,
     states,
   }
@@ -147,7 +151,9 @@ export function packBaseline({ graph, platforms, screensDir, flowsDir, captureSt
   const nodes = graph.routes.map((r) => {
     const per = Object.fromEntries(sides.map((s) => [s.platform, captureFor(r, s.status[r.id] ?? {}, s.files, s.prefix)]))
     return {
-      id: r.id, urlPath: r.urlPath, file: r.file ?? null, slug: r.slug, group: r.layoutDir ?? '', navigator: r.navigator ?? null,
+      id: r.id, urlPath: r.urlPath ?? null, title: r.title ?? r.urlPath ?? r.id,
+      reach: r.reach ?? (r.urlPath ? 'deep-link' : 'navigation-only'),
+      file: r.file ?? null, slug: r.slug, group: r.layoutDir ?? '', navigator: r.navigator ?? null,
       params: r.params ?? [], presentation: r.presentation ?? null, stateHints: r.stateHints ?? [],
       capture: per[sides[0].platform],
       ...(multi ? { captures: per } : {}),

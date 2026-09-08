@@ -55,7 +55,7 @@ const shotsByPlatform = Object.fromEntries(platforms.map((pf) => {
   return [pf, fs.existsSync(d) ? fs.readdirSync(d).filter((f) => /\.(png|jpe?g|webp)$/i.test(f)) : []]
 }))
 
-const appName = path.basename(graph.projectRoot ?? projectRoot)
+const appName = graph.appName ?? path.basename(graph.projectRoot ?? projectRoot)
 
 // capture-status.json is keyed by platform when several are packed, by route
 // id when one is — the same shape the CI packer writes
@@ -72,7 +72,8 @@ const captureOf = (r, pf) => {
   return {
     status: cs.status ?? (baseShot ? 'ok' : 'missing'),
     note: cs.note ?? null,
-    needsNavigation: cs.needsNavigation ?? false,
+    // a route the provider says has no URL is navigation-only by definition
+    needsNavigation: cs.needsNavigation ?? r.reach === 'navigation-only',
     screenshot: baseShot ? prefix + baseShot : null,
     states,
   }
@@ -82,7 +83,9 @@ const nodes = graph.routes.map((r) => {
   const per = Object.fromEntries(platforms.map((pf) => [pf, captureOf(r, pf)]))
   return {
     id: r.id,
-    urlPath: r.urlPath,
+    urlPath: r.urlPath ?? null,
+    title: r.title ?? r.urlPath ?? r.id,
+    reach: r.reach ?? (r.urlPath ? 'deep-link' : 'navigation-only'),
     file: r.file ?? null,
     slug: r.slug,
     group: r.layoutDir ?? '',
