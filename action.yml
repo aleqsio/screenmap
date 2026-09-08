@@ -199,17 +199,26 @@ runs:
         export PATH="$sdk/platform-tools:$sdk/emulator:$sdk/cmdline-tools/latest/bin:$PATH"
         echo "$sdk/platform-tools" >> "$GITHUB_PATH"
         echo "$sdk/emulator" >> "$GITHUB_PATH"
-        # a device already attached (self-hosted runner, or a previous step) wins
-        if adb devices | awk 'NR>1 && $2=="device"' | grep -q .; then
+        command -v sdkmanager >/dev/null || { echo "::error::sdkmanager not found under $sdk/cmdline-tools/latest/bin"; exit 1; }
+        # a device already attached (self-hosted runner, or an earlier step) wins,
+        # and needs none of the SDK packages below
+        if command -v adb >/dev/null && adb devices | awk 'NR>1 && $2=="device"' | grep -q .; then
           echo "using the attached device: $(adb devices | awk 'NR>1 && $2=="device" {print $1}' | head -1)"
         else
+          # Install what we actually use rather than trusting the runner image to
+          # carry it: GitHub's ubuntu images ship platform-tools, but `emulator`
+          # is not guaranteed, and a missing one surfaces as a bare
+          # "command not found" three steps later. Already-present packages are
+          # a no-op, so this costs nothing on a warm image.
+          yes | sdkmanager --install "platform-tools" "emulator" "${{ inputs.android_system_image }}" >/dev/null
+          command -v avdmanager >/dev/null || { echo "::error::avdmanager not found under $sdk/cmdline-tools/latest/bin"; exit 1; }
           if ! avdmanager list avd -c | grep -qx "${{ inputs.avd }}"; then
-            yes | sdkmanager --install "${{ inputs.android_system_image }}" >/dev/null
             echo no | avdmanager create avd -n "${{ inputs.avd }}" -k "${{ inputs.android_system_image }}" --force
           fi
-          # the driver (lib/android.mjs) boots and waits for sys.boot_completed;
+          # the driver (lib/android.mjs) boots it and waits for sys.boot_completed;
           # starting it here would just duplicate that logic
           echo "AVD ${{ inputs.avd }} ready — the run boots it"
+          "$sdk/emulator/emulator" -version | head -1 || true
         fi
 
     - name: Dev client (EAS or provided)
