@@ -83,8 +83,12 @@ export const PLATFORMS = ['ios', 'android']
 // equivalent of "iPhone 16 Pro is always there", so the driver takes whatever
 // device is attached or the first defined AVD, and names it in the summary.
 const PLATFORM_DEFAULTS = {
-  ios: { device: 'iPhone 16 Pro', appId: null, appPath: null },
-  android: { device: null, appId: null, appPath: null },
+  ios: { device: 'iPhone 16 Pro', appId: null, appPath: null, waits: {} },
+  // An emulator on software rendering animates its navigation header slower
+  // than a simulator does, so a transition wait tuned on iOS captures the
+  // header mid-flight. `settle()` in device.mjs is the real fix — this is the
+  // floor for a run with no argent to wait on the screen with.
+  android: { device: null, appId: null, appPath: null, waits: { transition: 4000, idleStable: 500, idleTimeout: 6000 } },
 }
 
 export function loadConfig(projectDir) {
@@ -146,6 +150,10 @@ export function loadConfig(projectDir) {
     // override of an explicit choice.
     const envDevice = process.env[`SCREENMAP_DEVICE_${p.toUpperCase()}`]
     if (envDevice && !user[p]?.device) defined.device = envDevice
+    // waits resolve base -> platform default -> what the user set globally ->
+    // what they set for this platform, so an explicit choice always wins over
+    // the platform's floor
+    defined.waits = { ...base.waits, ...(PLATFORM_DEFAULTS[p].waits ?? {}), ...(user.waits ?? {}), ...(user[p]?.waits ?? {}) }
     merged[p] = defined
   }
   return merged
@@ -155,7 +163,11 @@ export function loadConfig(projectDir) {
 // agent, scheme) with that platform's device/app fields resolved on top.
 export function platformConfig(config, platform) {
   const p = config[platform] ?? {}
-  return { ...config, platform, device: p.device ?? null, appId: p.appId ?? null, appPath: p.appPath ?? null }
+  return {
+    ...config, platform,
+    device: p.device ?? null, appId: p.appId ?? null, appPath: p.appPath ?? null,
+    waits: p.waits ?? config.waits,
+  }
 }
 
 // substitute :param placeholders in a urlPath with sample values

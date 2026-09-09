@@ -10,6 +10,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { sh, sleep, log } from './util.mjs'
 import { ocrAvailable } from './ocr.mjs'
+import { argentAvailable, argentRun } from './argent.mjs'
 import * as ios from './sim.mjs'
 import * as android from './android.mjs'
 
@@ -51,6 +52,27 @@ export function startMetro(projectDir, port = 8081) {
   proc.on('exit', (code) => { log(`metro exited (${code})`); readyRes(false); bundledRes(false) })
   const stop = () => { try { proc.kill('SIGTERM') } catch {} }
   return { proc, ready, bundled, stop, output: () => out }
+}
+
+// A fixed sleep guesses how long a transition takes; this waits for it to
+// actually finish. argent polls the same accessibility tree `describe` reads
+// until the content holds still, on either platform.
+//
+// Worth doing because the alternative is invisible: an Android emulator on
+// software rendering animates its navigation header slowly enough that a wait
+// tuned on iOS captures the large title and the collapsing nav title painted
+// over each other. The screenshot succeeds, the screen is real, and the map
+// just quietly looks wrong. Six of the first eight Android captures had it.
+async function settle(id, config) {
+  if (!argentAvailable()) return false
+  const r = argentRun('await-screen-idle', {
+    udid: id,
+    timeoutMs: config.waits.idleTimeout ?? 4000,
+    minStableMs: config.waits.idleStable ?? 400,
+  })
+  // settled=false only means it never went still inside the timeout — the
+  // capture still happens, it is just no better than the fixed wait
+  return r.json?.settled === true
 }
 
 export async function waitFor(promise, ms, label) {
@@ -139,11 +161,13 @@ export async function openSession({ projectDir, config, scheme, platform = 'ios'
       // dev builds often show a one-off toast right after the bundle loads;
       // give the very first capture extra time to settle
       if (firstVisit) { await sleep(config.waits.settle ?? 6000); firstVisit = false }
+      await settle(id, config)
       driver.screenshot(id, outPath)
       return outPath
     },
     async relaunch() {
       driver.terminate(id, appId); await sleep(800); driver.launch(id, appId); await sleep(4000)
+      await settle(id, config)
       firstVisit = true // dev builds re-show their load-time toast after a relaunch
     },
     close() { metro.stop() },
