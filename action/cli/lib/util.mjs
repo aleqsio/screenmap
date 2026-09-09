@@ -74,9 +74,23 @@ function agentKeyPresent(user) {
   return !!(process.env[keyEnv] || process.env.AGENT_API_KEY)
 }
 
+// Every platform a run can capture on. Order matters: it is the order captures
+// happen in, and the first entry is the one single-platform consumers (older
+// viewers, the PR comment image) see as the map's device.
+export const PLATFORMS = ['ios', 'android']
+
+// Per-platform device defaults. Android's is null on purpose — there is no
+// equivalent of "iPhone 16 Pro is always there", so the driver takes whatever
+// device is attached or the first defined AVD, and names it in the summary.
+const PLATFORM_DEFAULTS = {
+  ios: { device: 'iPhone 16 Pro', appId: null, appPath: null },
+  android: { device: null, appId: null, appPath: null },
+}
+
 export function loadConfig(projectDir) {
   const base = {
-    scheme: null, bundleId: null, appPath: null, device: 'iPhone 16 Pro', metroPort: 8081,
+    scheme: null, bundleId: null, appPath: null, device: null, metroPort: 8081,
+    platforms: ['ios'],
     waits: { transition: 2500, network: 6000, boot: 15000 },
     suspects: { broadCap: 8 },
     agent: { enabled: true, model: null, provider: null, command: null, keyEnv: null },
@@ -106,8 +120,42 @@ export function loadConfig(projectDir) {
     routes: { ...defaults.routes, ...(user.routes ?? {}) },
   }
   if (process.env.AGENT_MAX_SCREENS) merged.agent.maxScreens = Number(process.env.AGENT_MAX_SCREENS) || merged.agent.maxScreens
-  if (process.env.SCREENMAP_APP_PATH) merged.appPath = process.env.SCREENMAP_APP_PATH // a prebuilt client (e.g. from EAS) beats ios/build discovery
+
+  // platforms: env wins, then config.platforms, then the legacy single-platform
+  // default. An unknown name is a typo worth failing on rather than silently
+  // capturing nothing.
+  const wanted = (process.env.SCREENMAP_PLATFORMS || '').trim()
+    ? process.env.SCREENMAP_PLATFORMS.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+    : [].concat(user.platforms ?? base.platforms)
+  for (const p of wanted) if (!PLATFORMS.includes(p)) throw new Error(`unknown platform "${p}" — expected ${PLATFORMS.join(' | ')}`)
+  merged.platforms = PLATFORMS.filter((p) => wanted.includes(p)) // canonical order, deduped
+
+  // Per-platform blocks, with the pre-multi-platform top-level keys still
+  // meaning what they always meant: iOS.
+  for (const p of PLATFORMS) {
+    const legacy = p === 'ios' ? { device: user.device, appId: user.bundleId ?? user.appId, appPath: user.appPath } : {}
+    const defined = { ...PLATFORM_DEFAULTS[p], ...Object.fromEntries(Object.entries(legacy).filter(([, v]) => v != null)), ...(user[p] ?? {}) }
+    // an Android block may name the package as packageName; it is the same field
+    if (defined.packageName && !defined.appId) defined.appId = defined.packageName
+    const envPath = process.env[`SCREENMAP_APP_PATH_${p.toUpperCase()}`] || (merged.platforms.length === 1 ? process.env.SCREENMAP_APP_PATH : null)
+    if (envPath) defined.appPath = envPath // a prebuilt client (e.g. from EAS) beats on-disk discovery
+    // The Action provisions a specific simulator/AVD and has to be able to say
+    // which one: without this the driver falls back to "whatever is first",
+    // which on a runner that already has other devices boots something the
+    // Action never set up. Config still wins — this is the CI default, not an
+    // override of an explicit choice.
+    const envDevice = process.env[`SCREENMAP_DEVICE_${p.toUpperCase()}`]
+    if (envDevice && !user[p]?.device) defined.device = envDevice
+    merged[p] = defined
+  }
   return merged
+}
+
+// The flattened view one platform's session needs: shared knobs (waits, params,
+// agent, scheme) with that platform's device/app fields resolved on top.
+export function platformConfig(config, platform) {
+  const p = config[platform] ?? {}
+  return { ...config, platform, device: p.device ?? null, appId: p.appId ?? null, appPath: p.appPath ?? null }
 }
 
 // substitute :param placeholders in a urlPath with sample values

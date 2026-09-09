@@ -1,15 +1,33 @@
 ---
 name: screenmap
-description: Generate a visual navigation map of an Expo / React Native app. Statically parses routes and links (expo-router, react-navigation, or your own parser) for full coverage, then deep-links through every screen in the iOS simulator capturing screenshots — including runtime states like bottom sheet snap points and modals — and renders a self-contained HTML map. Also diffs two revisions into a PR preview (.diff.scrmap) showing which screens/edges were added, removed, or changed. Use when the user asks to map an Expo/React Native app's navigation, screens, or routes, wants a visual sitemap of their app, or wants to preview/review what a PR changes on-screen.
+description: Generate a visual navigation map of an Expo / React Native app. Statically parses routes and links (expo-router, react-navigation, or your own parser) for full coverage, then deep-links through every screen in the iOS simulator or Android emulator capturing screenshots — including runtime states like bottom sheet snap points and modals — and renders a self-contained HTML map. Both platforms can go into one map with a platform switcher. Also diffs two revisions into a PR preview (.diff.scrmap) showing which screens/edges were added, removed, or changed. Use when the user asks to map an Expo/React Native app's navigation, screens, or routes, wants a visual sitemap of their app, or wants to preview/review what a PR changes on-screen.
 ---
 
 # screenmap
 
 Produce a visual map of an Expo / React Native app's navigation: every route as a card with a screenshot, runtime state variants (bottom sheets at each snap point, modals), and navigation edges between screens.
 
-**Arguments:** optional path to the Expo project (default: current working directory). `--static` = skip the simulator phases and render a screenshot-less map. `pr <number>` or `diff <base>..<head>` = PR diff mode (see bottom).
+**Arguments:** optional path to the Expo project (default: current working directory). `--static` = skip the device phases and render a screenshot-less map. `--platform ios|android|both` (default `ios`) = which device(s) to capture on. `pr <number>` or `diff <base>..<head>` = PR diff mode (see bottom).
 
 **Working directory contract:** all outputs go to `<project>/.screenmap/out/` — `graph.json`, `screens/*.png`, `flows/*.yaml` + `flows/*.meta.json`, `map.html`. Suggest adding `.screenmap/out/` to the project's `.gitignore` at the end.
+
+**Platform contract:** with one platform, screenshots go to `screens/<slug>.png` as they always have. With `--platform both`, they go to `screens/ios/<slug>.png` and `screens/android/<slug>.png`, `capture-status.json` is keyed by platform first (`{"android": {"<routeId>": …}}`), and the bundle carries both so the viewer gets an iOS / Android switcher. Run the device phases once per platform, all the way through, before starting the next — never interleave them.
+
+### Device command table
+
+Everything below that touches a device has a form per platform. `<dev>` is the iOS UDID or the Android serial (`adb devices`); with one device attached you can use `booted` on iOS and omit `-s <dev>` on Android.
+
+| | iOS | Android |
+|---|---|---|
+| list devices | `xcrun simctl list devices booted` | `adb devices -l` |
+| deep link | `xcrun simctl openurl <dev> "<url>"` | `adb -s <dev> shell am start -a android.intent.action.VIEW -d '<url>'` |
+| screenshot to disk | `xcrun simctl io <dev> screenshot <path>` | `adb -s <dev> exec-out screencap -p > <path>` |
+| relaunch | `xcrun simctl terminate <dev> <bundleId>` then `launch` | `adb -s <dev> shell am force-stop <pkg>` then `monkey -p <pkg> -c android.intent.category.LAUNCHER 1` |
+| freeze status bar | `xcrun simctl status_bar <dev> override …` | SystemUI demo mode (see D3) |
+| reach host Metro | works as-is | `adb -s <dev> reverse tcp:8081 tcp:8081` **first**, or nothing loads |
+| taps / swipes | argent (`--udid <dev>`) | argent (`--udid <dev>` — it takes an Android serial too) |
+
+Quote the Android deep link in single quotes: `adb shell` runs the string on the device, so an unquoted `&` in a query string backgrounds the command instead of passing it.
 
 ## Flow recording (do this throughout Phases 4–5)
 
@@ -70,6 +88,10 @@ If `--static` was requested, jump to Phase 6.
 
 ## Phase 3 — boot the app
 
+Run this phase once per platform.
+
+**iOS**
+
 1. `xcrun simctl list devices booted` — check for a booted simulator.
 2. Call the iOS simulator MCP `attach` action FIRST so the user can watch (harmless error if nothing is booted yet — boot/build, then retry attach).
 3. Get the app running, preferring what already exists:
@@ -81,16 +103,26 @@ If `--static` was requested, jump to Phase 6.
    - Expo Go: `xcrun simctl openurl booted "exp://127.0.0.1:8081/--/"`
    Take an MCP `screenshot` to confirm the app rendered (not a crash/error screen). Use whichever URL form worked for the rest of the run.
 
+**Android**
+
+There is no Android equivalent of the iOS simulator MCP, so the user watches the emulator window itself — say so rather than promising a live panel. The `android-debugging` skill, if available, covers adb troubleshooting in more depth.
+
+1. `adb devices -l` — check for an attached device or a running emulator. If none, list AVDs with `emulator -list-avds` and start one in the background: `emulator -avd <name> -no-snapshot -no-boot-anim &`. If `adb`/`emulator` are not on PATH, they are under `$ANDROID_HOME/platform-tools` and `$ANDROID_HOME/emulator`.
+2. Wait for the boot to finish — `adb wait-for-device` only waits for adb to see it, so poll until `adb shell getprop sys.boot_completed` returns `1`, then dismiss the lock screen with `adb shell input keyevent 82`. Installing before that fails in ways that read as a broken APK.
+3. **`adb reverse tcp:8081 tcp:8081`.** The emulator's `localhost` is the emulator; without the tunnel the app cannot reach Metro on the host and nothing will load. Redo it after any emulator restart.
+4. Get the app running: start Metro in the background as above, then launch the installed dev build (`adb shell monkey -p <pkg> -c android.intent.category.LAUNCHER 1`). If no dev build is installed, `npx expo run:android` (warn the user this builds and takes minutes).
+5. **Verify deep linking before sweeping**, same as iOS: `adb shell am start -a android.intent.action.VIEW -d '<scheme>://'`, then screenshot to disk and look at it.
+
 ## Phase 4 — route sweep
 
 **Routes with `"reach": "navigation-only"` have no deep link at all** — normal for react-navigation screens that are absent from the linking config. Do not deep-link them and do not visit the app root in their place: that captures the home screen under the wrong route's name, which is exactly the kind of silent bad capture Phase 4b exists to catch. Skip them in this phase, record `{"needsNavigation": true}` for them in `capture-status.json`, and reach them by tapping in Phase 5b — their nav flow is their capture.
 
 For each route with a URL (substituting params from Phase 2; for `+not-found`, deep-link a garbage path like `/definitely-not-a-route`):
 
-1. `open_url` (or `xcrun simctl openurl booted "<url>"`) with the route's deep link.
-2. Wait ~1–1.5s for the transition (MCP `wait`). Content screens that fetch over the network need 3–4s — a capture showing a spinner or loading skeleton means the wait was too short, not that the route is broken; the Phase 4b review catches these, and you re-capture with a longer wait.
-3. Capture to disk: `xcrun simctl io booted screenshot <project>/.screenmap/out/screens/<slug>.png` — use the exact `slug` from `graph.json`; the renderer depends on this naming. (MCP `screenshot` is for your own eyes only; it doesn't save a file.)
-4. Every few routes, sanity-check via MCP `screenshot` that you're capturing real screens. If a route shows a red error screen, an error boundary, or redirected somewhere else, still keep the capture but note it for the final report.
+1. Open the route's deep link (see the device command table).
+2. Wait ~1–1.5s for the transition (MCP `wait`, or just `sleep`). Content screens that fetch over the network need 3–4s — a capture showing a spinner or loading skeleton means the wait was too short, not that the route is broken; the Phase 4b review catches these, and you re-capture with a longer wait.
+3. Capture to disk at `<project>/.screenmap/out/screens/<slug>.png` (or `screens/<platform>/<slug>.png` when capturing both) — use the exact `slug` from `graph.json`; the renderer depends on this naming. (The iOS MCP `screenshot` is for your own eyes only; it doesn't save a file.)
+4. Every few routes, sanity-check that you're capturing real screens — read a capture back with the Read tool, or on iOS take an MCP `screenshot`. If a route shows a red error screen, an error boundary, or redirected somewhere else, still keep the capture but note it for the final report.
 
 ### Phase 4b — review and recover (do not skip)
 
@@ -145,10 +177,13 @@ These flows are what make edges *pinnable*: a nav flow tapping through a transit
 ## Phase 6 — pack, render, deliver
 
 ```bash
-for f in <project>/.screenmap/out/screens/*.png; do sips -Z 800 "$f" >/dev/null; done   # downscale
+# downscale (sips is macOS; on Linux use `mogrify -resize '800x800>' <files>`)
+for f in <project>/.screenmap/out/screens/*.png; do sips -Z 800 "$f" >/dev/null; done
 node <this skill's dir>/scripts/pack-map.mjs <project>        # → .screenmap/out/<app>-<date>.scrmap bundle
 node <this skill's dir>/scripts/render-map.mjs <project>/.screenmap/out/graph.json   # static HTML fallback
 ```
+
+Capturing both platforms: downscale each `screens/<platform>/` directory, then pass the platforms to the packer — `node .../pack-map.mjs <project> --platforms ios,android`. The bundle then carries both and the viewer shows an iOS / Android switcher; report coverage per platform, since a screen can be fine on one and broken on the other.
 
 The `.scrmap` bundle (zip: manifest.json + map.json + screens/) is the primary deliverable — see `docs/scrmap-format.md` in the skill repo. Open it in the **map viewer** (`apps/visualiser` in the skill repo, `npm run dev`, drag the bundle in): interactive graph, flow playback, click-to-copy replay commands. Send the bundle with SendUserFile; send `map.html` too as the no-tooling fallback (display: render). Report: routes captured / total, state variants captured, anything skipped (error screens, auth redirects, un-triggerable sheets), unresolved edges. Offer to publish as an Artifact (if so, load the artifact-design skill first and rebuild the page body-only per Artifact rules — don't publish the full-document HTML as-is). Suggest adding `.screenmap/out/` to `.gitignore`.
 
@@ -160,7 +195,9 @@ Flows are argent YAML, so the primary replay is **headless**:
 npx @swmansion/argent flow run <project>/.screenmap/out/flows/<flow-name>.yaml
 ```
 
-Run that first (it needs no LLM and reports pass/fail per step). Fall back to manual replay only when argent isn't installed and can't be (`npx` unavailable) or when the flow fails and the user wants a diagnosis: execute the YAML steps yourself — `open-url`/`wait` via `xcrun simctl`, taps/swipes via the simulator MCP using the sidecar's `target` labels as the source of truth (recorded coordinates are hints that may have drifted). Verify each step with an MCP screenshot; if a target can't be found in 3 attempts, stop and report which step failed and what the screen showed instead. Same safety rules as Phase 5: never trigger destructive or submitting controls.
+Run that first (it needs no LLM and reports pass/fail per step; add `--device <id>` to pick a device, and argent takes an Android serial wherever it takes an iOS UDID). Fall back to manual replay only when argent isn't installed and can't be (`npx` unavailable) or when the flow fails and the user wants a diagnosis: execute the YAML steps yourself — `open-url`/`wait` via the device command table, taps/swipes via the simulator MCP (iOS) or `adb shell input tap <x> <y>` in device pixels (Android), using the sidecar's `target` labels as the source of truth (recorded coordinates are hints that may have drifted).
+
+A flow recorded on one platform is not guaranteed to replay on the other: coordinates are normalized, but layouts, system chrome heights and back-navigation differ. Record per platform when you capture both, and name the platform in the sidecar's `device` field. Verify each step with an MCP screenshot; if a target can't be found in 3 attempts, stop and report which step failed and what the screen showed instead. Same safety rules as Phase 5: never trigger destructive or submitting controls.
 
 ## PR diff mode — `/screenmap pr <number>` or `/screenmap diff <base>..<head>`
 
@@ -187,6 +224,8 @@ not input to the classification.
 - **Native guard:** if changed files touch `ios/`, `android/`, `patches/`, or change
   native deps in `package.json`, warn the user that the installed dev build may not
   match both sides — JS-only diffs are the supported case. Proceed only if they accept.
+  A change under `ios/` only affects the iOS side and one under `android/` only the
+  Android side, so say which platform's captures to distrust rather than both.
 - The project must have a clean tree (or the user agrees to `git stash`). Remember the
   original ref; **restore it at the end, always** — even after failures.
 
@@ -242,7 +281,16 @@ Boot the app (Phase 3), then freeze the status bar so both sides capture identic
 (clock noise otherwise pollutes every pixel comparison):
 
 ```bash
+# iOS
 xcrun simctl status_bar booted override --time "9:41" --dataNetwork wifi --wifiMode active --wifiBars 3 --cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+
+# Android — SystemUI demo mode is the equivalent
+adb shell settings put global sysui_demo_allowed 1
+adb shell am broadcast -a com.android.systemui.demo -e command enter
+adb shell am broadcast -a com.android.systemui.demo -e command clock -e hhmm 0941
+adb shell am broadcast -a com.android.systemui.demo -e command battery -e level 100 -e plugged false
+adb shell am broadcast -a com.android.systemui.demo -e command network -e wifi show -e level 4
+adb shell am broadcast -a com.android.systemui.demo -e command notifications -e visible false
 ```
 
 Then for each side in order **base → head**:
@@ -264,6 +312,10 @@ Keep both sides comparable: same device, same account, same waits.
 ```bash
 for f in <diffDir>/{base,head}/screens/*.png; do sips -Z 800 "$f" >/dev/null; done
 node <skill>/scripts/diff-map.mjs pack <diffDir> --device "<device name>"
+
+# both platforms: screens live at <diffDir>/<side>/screens/<platform>/, and
+# --device takes one name per platform in the same order
+node <skill>/scripts/diff-map.mjs pack <diffDir> --platforms ios,android --device "iPhone 17 Pro,Pixel 7"
 ```
 
 Restore the original ref. Send the `.diff.scrmap` with SendUserFile; report the diff
@@ -274,7 +326,7 @@ the map viewer overlays the diff on the full map, so unchanged screens keep thei
 screenshots (dimmed) and changed screens flip base⇄head in place (hover for a red
 changed-pixels render).
 
-## Web fallback (no macOS simulator available, or user asks for web)
+## Web fallback (no simulator or emulator available, or user asks for web)
 
 - Start `npx expo start --web`, confirm `http://localhost:8081/_sitemap` lists the same routes as the parse (good cross-check).
 - Capture each route that has a `urlPath` with `npx playwright screenshot --viewport-size=390,844 "http://localhost:8081<urlPath>" <project>/.screenmap/out/screens/<slug>.png` (needs `npx playwright install chromium` once; ask before installing).

@@ -33,7 +33,7 @@ function statusBadge(node) {
 
 const HIDDEN_STEPS = ['wait', 'screenshot']
 
-export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, onOpenBuffer, onCloseChanges }) {
+export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, platforms, platform, setPlatform, onOpenBuffer, onCloseChanges }) {
   const { manifest, map, images, diff } = bundle
   const diffMode = mode === 'changes' && !!diff
   const [positions, setPositions] = useState(null)
@@ -510,6 +510,9 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, onO
         overlaid={overlaid}
         stats={stats}
         diffStats={diffStats}
+        platforms={platforms}
+        platform={platform}
+        setPlatform={setPlatform}
         onOpenBuffer={onOpenBuffer}
         onCloseChanges={onCloseChanges}
       />}

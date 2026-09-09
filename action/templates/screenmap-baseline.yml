@@ -33,7 +33,11 @@ jobs:
       - uses: aleqsio/screenmap@v1
         with:
           mode: baseline
+          full: ${{ inputs.full }}
           agent_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # agent_provider: claude   # or codex | gemini | opencode — pass the matching key above
           expo_token: ${{ secrets.EXPO_TOKEN }}   # EAS builds/serves the dev client (or pass app_path instead)
           flows_pr: "true"
+          # platform: ios   # or android on ubuntu-latest; for both, split into two
+                            # jobs and fold them with `screenmap-ci merge`
+                            # (see the note at the bottom of screenmap-pr.yml)

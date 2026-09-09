@@ -6,6 +6,139 @@ the full write-up of what that turned up is in `site/docs/setup-instruction-fixe
 
 ---
 
+## Android: verified on CI, and what the first runs cost
+
+Android support landed on 2026-09-01 and ran green on GitHub Actions on
+2026-09-08 against `aleqsio/screenmap-test`: emulator booted, APK installed,
+`adb reverse` tunnelled, `brew://` deep links resolved, first JS bundle served,
+eight screens captured and published. **The adb driver itself needed no changes
+after the first successful boot** — every fix was in `action.yml` or in how the
+run reported failure. What it took, in order, because none of it was reachable
+from a laptop:
+
+1. **`yes | sdkmanager` failed a step that succeeded.** GitHub runs `shell: bash`
+   with `-eo pipefail`; `yes` dies of SIGPIPE the moment sdkmanager stops
+   reading, and pipefail takes that as the pipeline's status. Read
+   `PIPESTATUS[1]` instead.
+2. **`libpulse.so.0` is not on GitHub's ubuntu images**, and the SDK's qemu links
+   against it, so `emulator` could not start at all. Installed for android runs
+   along with the X libs, those best-effort since the names drift between
+   releases.
+3. **avdmanager and emulator disagreed on where AVDs live.** Different resolution
+   chains (`ANDROID_AVD_HOME`, then `$ANDROID_SDK_HOME/.android/avd` for one and
+   `$HOME/.android/avd` for the other). The AVD was created and invisible.
+   `ANDROID_AVD_HOME` is now pinned for both.
+4. **Every capture came back behind "Pixel Launcher isn't responding".** An
+   emulator on software rendering trips the ANR watchdog, the dialog is modal,
+   and it lands in every capture after it. `hide_error_dialogs` stops the system
+   drawing them; `ALERT_HINTS` learned the wording as a second layer.
+
+Two of those cost far more than they should have because the run reported the
+wrong thing, which is the lesson worth keeping: `emulator -version` was `|| true`,
+so a broken binary surfaced seventeen minutes and one EAS build later as "no AVD
+defined" — the one thing that was not wrong. Both are now hard gates that print
+the underlying tool's own complaint.
+
+Incidental finds along the way: EAS generates Android credentials
+non-interactively, so no keystore setup is needed; fingerprint reuse works
+(a rebuild collapsed to an 8-second download); and the baseline workflow's
+`full` input had never been wired to `--full`.
+
+### The PR lane, and the clock
+
+Both settled on 2026-09-08 by
+[screenmap-test#17](https://github.com/aleqsio/screenmap-test/pull/17), a
+one-file copy change to `/grind`.
+
+The diff lane works: suspects narrowed to exactly one node, only that screen was
+captured on the head side, the base side came from the Android baseline, and the
+sticky comment rendered with the before/after pair, the right reason
+("its own source changed"), the Android device name, and the tesseract line.
+
+**The clock is a non-issue.** Base and head agree: neither shows one. The
+status-bar strip in both contains only the app's own eyebrow text, because this
+app draws edge-to-edge over that area. The `9:41` seen in the run with the ANR
+dialog up was the anomaly — the dialog was changing the window insets. Demo mode
+is still worth setting for the icons, but on an edge-to-edge app the clock it
+pins may never be visible, and that is fine: what a diff needs is base and head
+agreeing, which they do.
+
+### Still unverified
+
+- **`muteDevMenu()` remains a guess.** No dev-menu overlay appeared in any
+  capture, but this app may simply not show one where iOS would, so the
+  SharedPreferences filename and keys are still unconfirmed. It stays
+  best-effort and non-fatal.
+- **Flow replay on Android.** Every run so far was flowless — `0 by flow
+  replay`, everything deep-linked. argent's device tools take an Android serial,
+  but no committed flow has actually been replayed on one, so `replayFlow()` and
+  `verifyLanding()`'s landmark check are still untested on this platform.
+- **The agent lane on Android.** Deliberately off (no key) for these runs, so the
+  platform-specific prompt in `agent.mjs` has never been exercised.
+
+## The screenmaps branch has no platform in its paths
+
+Found while planning the first Android CI run, on 2026-09-08. Not fixed.
+
+A baseline publishes to `main/<sha7>.scrmap` and `main/latest.scrmap`, and a PR
+run restores `main/<base_sha7>.scrmap` falling back to `main/latest.scrmap`.
+Nothing in either path names a platform. So in a repo that already maps iOS, an
+Android baseline overwrites the iOS map, and the next iOS PR run restores an
+Android baseline: the diff's static verdicts still hold, but every base-side
+capture is missing or belongs to the wrong device.
+
+The workaround for a first experiment is the existing `screenmaps_branch` input
+— point the Android runs at their own branch and nothing collides. That is fine
+for a trial and wrong as an answer, because a repo mapping both platforms wants
+one map, not two branches.
+
+Deciding it properly means picking where the merge happens:
+
+1. **Per-platform paths plus a merged map.** Each platform publishes
+   `main/<platform>/latest.scrmap`; a merge job writes `main/latest.scrmap` from
+   them. PR runs restore the merged one, so the viewer keeps getting a single
+   bundle. Costs a third job and makes `latest.scrmap` a derived artifact.
+2. **Per-platform paths only**, with the viewer loading two bundles. Cheaper in
+   CI, but it pushes the merge onto every reader and the PR comment can only
+   show one.
+
+Whichever wins, existing repos have an unprefixed `main/latest.scrmap` that must
+keep resolving, or every repo loses its baseline on upgrade — the same hazard as
+the `appmaps` -> `screenmaps` branch rename.
+
+## OCR recall on the Linux lane
+
+Measured on 2026-09-01 against six real captures (downscaled 368x800) plus a
+full-resolution simulator capture:
+
+- **The coordinate flip is correct**, which was the one thing that had to be. The
+  tesseract adapter reports pixels from the top-left and Vision reports normalized
+  from the bottom-left; across four real captures, 22 of 23 strings both backends
+  read agree on the resulting tap-y to within 0.006. (The one outlier is a screen
+  with two "About" labels, where the backends matched different instances.) A wrong
+  flip would have sent every system-alert dismissal to the mirror image of the
+  button.
+- tesseract recovers ~61% of the words Vision does on app screens, and ~47% on a
+  sparse springboard capture, where it also missed the frozen "9:41" clock that
+  Vision read. Chrome-heavy, low-text screens are its worst case. Tuning did not
+  move it:
+  `--psm 6/11/12/3/4`, `--oem 1`, and a confidence floor all landed within a
+  point of each other.
+- The decisions that gate a capture transfer intact. Landmark containment — the
+  strong signal — passed on the right screen and scored 0.00 on the wrong one
+  under both backends. Same-screen jaccard is 1.00 on both; different-screen
+  jaccard moves *down* (0.88 -> 0.75, 0.59 -> 0.48), which makes the
+  `bogus-param` probe more conservative rather than less.
+- The weak `deeplink-text` fallback (`j >= 0.35`) is equally blunt on both: this
+  app's screens share enough chrome that different screens score 0.48-0.88. That
+  is a pre-existing property, not a tesseract regression, but it means a route
+  with no landmarks is barely verified on either platform. Committed landmarks
+  remain the only strong signal — say so in the docs rather than tuning 0.35.
+
+The run summary and the PR comment now name the OCR backend whenever it is not
+Vision, so a drift warning from a Linux run can be read with the right amount of
+suspicion.
+
 ## Drifted flows have no repair path without an agent
 
 `effort=deterministic` (now the automatic choice when no agent key is set) makes

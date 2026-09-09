@@ -1,16 +1,21 @@
-// iOS simulator + Metro driver. Everything here is `xcrun simctl` and a
-// background Metro process — no MCP, no LLM, works on a macOS runner.
-import { spawn } from 'node:child_process'
+// iOS simulator driver — the `xcrun simctl` half of the device layer, matching
+// lib/android.mjs's interface. No MCP, no LLM, works on a macOS runner.
+//
+// The shared session orchestration (Metro, the connect loop, capture helpers)
+// lives in lib/device.mjs; this file is only the iOS-specific primitives.
 import fs from 'node:fs'
 import path from 'node:path'
-import { sh, shOk, sleep, log } from './util.mjs'
+import { sh, shOk, log } from './util.mjs'
 import { argentAvailable, argentRun, grantPermissions } from './argent.mjs'
 import { ocr, ocrAvailable } from './ocr.mjs'
+
+export const platform = 'ios'
+export const label = 'iOS simulator'
 
 // iOS ≥18.3 gates simctl openurl for a custom scheme behind an
 // "Open in …?" prompt. Pre-approving the scheme in LaunchServices skips it
 // (the Detox/Maestro technique); harmless on versions without the prompt.
-function approveScheme(udid, scheme, bundleId) {
+export function approveScheme(udid, scheme, bundleId) {
   shOk('xcrun', ['simctl', 'spawn', udid, 'defaults', 'write', 'com.apple.launchservices.schemeapproval',
     `com.apple.CoreSimulator.CoreSimulatorBridge-->${scheme}`, '-string', bundleId])
   // SpringBoard caches approvals; respring so the write takes effect now
@@ -22,7 +27,7 @@ function approveScheme(udid, scheme, bundleId) {
 // standard UserDefaults (see DevMenuPreferences.swift), so mark onboarding done
 // before the first launch — the runtime equivalent of the
 // EXDevMenuIsOnboardingFinished Info.plist flag, without rebuilding the client.
-function muteDevMenu(udid, bundleId) {
+export function muteDevMenu(udid, bundleId) {
   shOk('xcrun', ['simctl', 'spawn', udid, 'defaults', 'write', bundleId, 'EXDevMenuIsOnboardingFinished', '-bool', 'true'])
   shOk('xcrun', ['simctl', 'spawn', udid, 'defaults', 'write', bundleId, 'EXDevMenuShowsAtLaunch', '-bool', 'false'])
   // expo-dev-menu 57 added a floating gear that defaults to on and lands in the
@@ -31,7 +36,7 @@ function muteDevMenu(udid, bundleId) {
 }
 
 // Belt-and-braces for the same prompt: OCR the screen and tap "Open".
-function tapOpenPrompt(udid, projectDir) {
+export function nudgeOpenPrompt(udid, projectDir) {
   if (!ocrAvailable()) return false
   const shot = path.join(projectDir, '.screenmap', 'out', 'ci', 'open-prompt.png')
   fs.mkdirSync(path.dirname(shot), { recursive: true })
@@ -49,20 +54,20 @@ function tapOpenPrompt(udid, projectDir) {
 
 export function listBooted() {
   const j = JSON.parse(sh('xcrun', ['simctl', 'list', 'devices', 'booted', '-j']))
-  return Object.values(j.devices).flat().filter((d) => d.state === 'Booted')
+  return Object.values(j.devices).flat().filter((d) => d.state === 'Booted').map((d) => ({ id: d.udid, name: d.name }))
 }
 
-export async function ensureBooted(deviceName) {
+export async function ensureBooted(config) {
   const booted = listBooted()
-  if (booted.length) { log(`simulator already booted: ${booted[0].name} (${booted[0].udid})`); return booted[0].udid }
+  if (booted.length) { log(`simulator already booted: ${booted[0].name} (${booted[0].id})`); return booted[0] }
   const j = JSON.parse(sh('xcrun', ['simctl', 'list', 'devices', 'available', '-j']))
   const all = Object.values(j.devices).flat()
-  const pick = all.find((d) => d.name === deviceName) ?? all.find((d) => /iPhone/.test(d.name))
-  if (!pick) throw new Error(`no available simulator (wanted "${deviceName}")`)
+  const pick = all.find((d) => d.name === config.device) ?? all.find((d) => /iPhone/.test(d.name))
+  if (!pick) throw new Error(`no available simulator (wanted "${config.device}")`)
   log(`booting ${pick.name} (${pick.udid})`)
   sh('xcrun', ['simctl', 'boot', pick.udid])
   sh('xcrun', ['simctl', 'bootstatus', pick.udid, '-b'])
-  return pick.udid
+  return { id: pick.udid, name: pick.name }
 }
 
 // presentation mode: identical clock/battery/signal on every capture, so
@@ -85,7 +90,7 @@ export function findBuiltApp(projectDir) {
   return null
 }
 
-export function bundleIdOf(appPath) {
+export function appIdOf(appPath) {
   return sh('defaults', ['read', path.join(appPath, 'Info'), 'CFBundleIdentifier'])
 }
 
@@ -100,6 +105,7 @@ export function screenshot(udid, outPath) {
   fs.mkdirSync(path.dirname(outPath), { recursive: true })
   freezeStatusBar(udid) // tooling in between (argent) can clear the override
   sh('xcrun', ['simctl', 'io', udid, 'screenshot', outPath])
+  return outPath
 }
 
 // pre-grant privacy so a mis-tap can never summon a system permission dialog
@@ -109,118 +115,12 @@ export function grantPrivacy(udid, bundleId) {
   if (argentAvailable()) { const g = grantPermissions(udid, bundleId); if (g.length) log(`pre-granted: ${g.join(', ')}`) }
 }
 
-// Metro in the background. Resolves `ready` when the server listens, and
-// exposes `bundled` (first successful bundle) for the caller to await after
-// launching the app.
-export function startMetro(projectDir, port = 8081) {
-  const cli = fs.existsSync(path.join(projectDir, 'node_modules', 'expo', 'bin', 'cli'))
-    ? [path.join(projectDir, 'node_modules', 'expo', 'bin', 'cli'), 'start', '--port', String(port)]
-    : null
-  if (!cli) throw new Error('expo not installed in project (node_modules/expo missing)')
-  const proc = spawn('node', cli, { cwd: projectDir, env: { ...process.env, CI: '1', EXPO_NO_TELEMETRY: '1' }, stdio: ['ignore', 'pipe', 'pipe'] })
-  let out = ''
-  let readyRes, bundledRes
-  const ready = new Promise((r) => (readyRes = r))
-  const bundled = new Promise((r) => (bundledRes = r))
-  const onData = (d) => {
-    const s = d.toString()
-    out += s
-    if (/Waiting on http:\/\/localhost:\d+/.test(out)) readyRes(true)
-    if (/Bundled\s|Bundling complete|\d+% \(\d+\/\d+\)/.test(out) && /Bundled\s|Bundling complete/.test(out)) bundledRes(true)
-    if (/(^|\n)\s*(error|Error|ERROR)/.test(s)) log('metro:', s.trim().slice(0, 300))
-  }
-  proc.stdout.on('data', onData)
-  proc.stderr.on('data', onData)
-  proc.on('exit', (code) => { log(`metro exited (${code})`); readyRes(false); bundledRes(false) })
-  const stop = () => { try { proc.kill('SIGTERM') } catch {} }
-  return { proc, ready, bundled, stop, output: () => out }
-}
+// The simulator shares the host's network stack, so Metro on localhost is
+// already reachable — nothing to tunnel.
+export function connectMetro() { return true }
 
-export async function waitFor(promise, ms, label) {
-  const t = await Promise.race([promise, sleep(ms).then(() => 'timeout')])
-  if (t === 'timeout') throw new Error(`timed out waiting for ${label} (${ms}ms)`)
-  return t
-}
-
-// Boot the whole stack: simulator, app, Metro, first bundle. Returns a
-// session with capture helpers; call session.close() at the end.
-export async function openSession({ projectDir, config, scheme }) {
-  const udid = await ensureBooted(config.device)
-  freezeStatusBar(udid)
-  const appPath = config.appPath ?? findBuiltApp(projectDir)
-  if (!appPath) throw new Error('no built dev client found under ios/build — build it first (expo run:ios --no-bundler)')
-  const bundleId = config.bundleId ?? bundleIdOf(appPath)
-  installApp(udid, appPath)
-  grantPrivacy(udid, bundleId)
-  muteDevMenu(udid, bundleId)
-  approveScheme(udid, scheme, bundleId)
-  await sleep(3000) // let SpringBoard settle after the respring
-  // compile the OCR helper now — doing it lazily inside the connect loop
-  // starves a small runner while Metro bundles, and simctl openurl times out
-  ocrAvailable()
-  const metro = startMetro(projectDir, config.metroPort)
-  await waitFor(metro.ready, 120000, 'Metro to start')
-  terminate(udid, bundleId)
-  await sleep(800)
-  launch(udid, bundleId)
-  await sleep(3000)
-  // the dev client opens on its launcher; a deep link routes it to Metro.
-  // Re-nudge every 15s — a cold simulator sometimes swallows the first one.
-  // expo-dev-client's connect URL loads a specific Metro without a tap.
-  const connectUrl = `${scheme}://expo-development-client/?url=${encodeURIComponent(`http://localhost:${config.metroPort}`)}`
-  const deadline = Date.now() + 300000
-  let bundledOk = false
-  let nudges = 0
-  while (Date.now() < deadline) {
-    // after a few foreground nudges, cold-start into the link instead: openurl
-    // on a terminated app launches it straight into the deep link, skipping
-    // any launcher race
-    if (nudges > 0 && nudges % 3 === 0) { try { terminate(udid, bundleId) } catch {}; await sleep(800) }
-    // openurl can time out (POSIX 60) when the sim is under load — a missed
-    // nudge, not a fatal error
-    try { openUrl(udid, connectUrl) } catch (e) { log('openurl nudge failed:', e.message.split('\n')[0]) }
-    nudges++
-    const r = await Promise.race([metro.bundled, sleep(15000).then(() => 'tick')])
-    if (r === true) { bundledOk = true; break }
-    if (r === false) break
-    log('waiting for the first JS bundle…')
-    try { tapOpenPrompt(udid, projectDir) } catch {}
-  }
-  if (!bundledOk) {
-    log('metro tail:\n' + metro.output().split('\n').slice(-25).join('\n'))
-    try {
-      const diagDir = path.join(projectDir, '.screenmap', 'out', 'ci', 'diag')
-      fs.mkdirSync(diagDir, { recursive: true })
-      sh('xcrun', ['simctl', 'io', udid, 'screenshot', path.join(diagDir, 'connect-timeout.png')])
-      fs.writeFileSync(path.join(diagDir, 'metro.log'), metro.output())
-      fs.writeFileSync(path.join(diagDir, 'listapps.txt'), sh('xcrun', ['simctl', 'listapps', udid]))
-      let status = 'curl failed'
-      try { status = sh('curl', ['-s', '-m', '5', `http://localhost:${config.metroPort}/status`]) } catch {}
-      fs.writeFileSync(path.join(diagDir, 'metro-status.txt'), status)
-      log('connect diagnostics written to', diagDir)
-    } catch (e) { log('diagnostics failed:', e.message) }
-    metro.stop()
-    throw new Error('timed out waiting for first JS bundle')
-  }
-  await sleep(config.waits.boot)
-  log(`session ready: ${bundleId} on ${udid}, Metro :${config.metroPort}`)
-  const deviceName = listBooted().find((d) => d.udid === udid)?.name ?? config.device
-  let firstVisit = true
-  return {
-    udid, bundleId, scheme, config, deviceName,
-    async visit(url, outPath, waitMs) {
-      try { openUrl(udid, url) } catch { await sleep(2000); openUrl(udid, url) } // one retry for transient simctl timeouts
-      await sleep(waitMs ?? config.waits.transition)
-      // dev builds often show a one-off toast right after the bundle loads;
-      // give the very first capture extra time to settle
-      if (firstVisit) { await sleep(config.waits.settle ?? 6000); firstVisit = false }
-      screenshot(udid, outPath)
-      return outPath
-    },
-    async relaunch() {
-      terminate(udid, bundleId); await sleep(800); launch(udid, bundleId); await sleep(4000)
-      firstVisit = true // dev builds re-show their load-time toast after a relaunch
-    },
-    close() { metro.stop() },
-  }
+export function diagnostics(udid, dir) {
+  fs.mkdirSync(dir, { recursive: true })
+  try { sh('xcrun', ['simctl', 'io', udid, 'screenshot', path.join(dir, 'connect-timeout.png')]) } catch {}
+  try { fs.writeFileSync(path.join(dir, 'listapps.txt'), sh('xcrun', ['simctl', 'listapps', udid])) } catch {}
 }

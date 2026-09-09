@@ -27,5 +27,47 @@ jobs:
           agent_api_key: ${{ secrets.ANTHROPIC_API_KEY }}   # optional — omit for deterministic-only
           # agent_provider: claude   # or codex | gemini | opencode — pass the matching key above
           expo_token: ${{ secrets.EXPO_TOKEN }}   # EAS builds/serves the dev client (or pass app_path instead)
+          # platform: ios     # or android (then use runs-on: ubuntu-latest — a tenth of the macOS rate)
           # project: apps/mobile
           # publish: "false"   # private repos that only want the artifact link
+
+# ─── Both platforms in one map ────────────────────────────────────────────────
+# iOS needs macOS and Android is only worth running on Linux, so they are two
+# jobs whose bundles are folded together afterwards. Replace the job above with:
+#
+#   jobs:
+#     ios:
+#       runs-on: macos-26
+#       steps:
+#         - uses: actions/checkout@v4
+#           with: { fetch-depth: 0 }
+#         - uses: actions/setup-node@v4
+#           with: { node-version: 22 }
+#         - uses: aleqsio/screenmap@v1
+#           id: map
+#           with:
+#             mode: pr
+#             platform: ios
+#             publish: "false"          # publish once, after the merge
+#             expo_token: ${{ secrets.EXPO_TOKEN }}
+#         - uses: actions/upload-artifact@v4
+#           with: { name: screenmap-ios, path: "${{ steps.map.outputs.bundle }}" }
+#
+#     android:                          # same, with platform: android on ubuntu-latest
+#       runs-on: ubuntu-latest
+#       ...
+#
+#     merge:
+#       needs: [ios, android]
+#       runs-on: ubuntu-latest
+#       steps:
+#         - uses: actions/download-artifact@v4
+#           with: { path: bundles }
+#         - run: |
+#             npx --yes github:aleqsio/screenmap#v1 --help >/dev/null 2>&1 || true
+#             screenmap-ci merge \
+#               --inputs ios=bundles/screenmap-ios/*.scrmap,android=bundles/screenmap-android/*.scrmap \
+#               --out combined.scrmap
+#
+# The merged bundle opens in the viewer with an iOS / Android switcher, and every
+# screen keeps its own per-platform capture status.

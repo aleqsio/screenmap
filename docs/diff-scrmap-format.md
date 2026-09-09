@@ -1,4 +1,4 @@
-# .diff.scrmap bundle format (v1)
+# .diff.scrmap bundle format (v2)
 
 A `.diff.scrmap` file is a plain **zip** describing how an app's navigation map changed
 between two revisions — typically the base and head of a pull request. It follows git
@@ -10,7 +10,7 @@ static analysis says the change could touch — not a full re-capture of the app
 
 ```
 myapp-pr123.diff.scrmap         (zip)
-├── manifest.json              # formatVersion: 1, kind: "diff", base/head/pr metadata
+├── manifest.json              # formatVersion: 1 (2 when multi-platform), kind: "diff", base/head/pr metadata
 ├── diff.json                  # the verdict: nodes/edges/states classified A/M/D
 ├── base/map.json              # full graph of the base revision (map.json schema from screenmap v2)
 ├── head/map.json              # full graph of the head revision
@@ -131,3 +131,30 @@ The screenmap skill assembles diffs under `<project>/.screenmap/out/diff/<slug>/
 ├── suspects.json         # diff-map.mjs suspects → capture work-list
 └── diff.json             # diff-map.mjs pack
 ```
+
+
+## Platforms (`formatVersion: 2`)
+
+A diff captured on one platform is the v1 layout above, unchanged. One captured
+on several becomes `formatVersion: 2`, gaining the same platform axis as a v3
+`.scrmap` — under each side rather than instead of it:
+
+```
+├── base/
+│   ├── map.json
+│   └── screens/{ios,android}/*.png
+└── head/
+    ├── map.json
+    └── screens/{ios,android}/*.png
+```
+
+`manifest.app.platforms` lists them in capture order, and each node in a side's
+`map.json` carries `captures` alongside a `capture` that mirrors the first
+platform — so a v1 reader still renders the diff as a single-platform one. Each
+side's `capture-status.json` is keyed by platform first.
+
+The diff verdicts themselves (`diff.json`: nodes, edges, states) stay
+platform-independent: a screen is "changed" because the change set touches its
+file or import closure, which is static analysis of one commit and says nothing
+about which device it renders on. A state variant captured on either platform
+counts as a state of that screen.

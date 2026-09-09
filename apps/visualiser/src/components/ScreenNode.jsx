@@ -101,6 +101,7 @@ export default function ScreenNode({ data, selected }) {
   const shownBase = activeState ? baseStates.find((s) => s.name === activeState)?.img ?? null : imgBase
   const canSwap = diff?.status === 'M' && !!shown && !!shownBase
   const [hovered, setHovered] = useState(false)
+  const [aspect, setAspect] = useState(null)
   const [diffImg, setDiffImg] = useState(null)
   useEffect(() => {
     if (!(hovered && canSwap)) { setDiffImg(null); return }
@@ -124,11 +125,23 @@ export default function ScreenNode({ data, selected }) {
       <Handle type="target" position={Position.Top} className="port" />
       <div
         className={cn('phone', broken && 'broken')}
+        style={aspect ? { '--shot-aspect': aspect } : undefined}
         onMouseEnter={canSwap ? () => setHovered(true) : undefined}
         onMouseLeave={canSwap ? () => setHovered(false) : undefined}
       >
         {displayed ? (
-          <img src={displayed} alt={nodeLabel(node)} draggable={false} />
+          <img
+            src={displayed}
+            alt={nodeLabel(node)}
+            draggable={false}
+            // The bezel takes its proportions from the capture rather than from
+            // a hardcoded iPhone, so an Android screen is not cropped by
+            // object-fit to a shape it never had.
+            onLoad={(e) => {
+              const { naturalWidth: w, naturalHeight: h } = e.currentTarget
+              if (w && h) setAspect(`${w} / ${h}`)
+            }}
+          />
         ) : (
           <div className="no-shot"><span>{node.capture.status === 'missing' ? 'no capture' : node.capture.status}</span></div>
         )}

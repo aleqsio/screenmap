@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // Packs an .screenmap/out/ working directory into a distributable .scrmap bundle (zip).
-// Usage: node pack-map.mjs [projectRoot] [--out <file.scrmap>]
+// Usage: node pack-map.mjs [projectRoot] [--out <file.scrmap>] [--platforms ios,android]
+//
+// Screens come from .screenmap/out/screens/. With several platforms they come
+// from .screenmap/out/screens/<platform>/ instead, each node gains a `captures`
+// map, and the bundle is formatVersion 3.
 // See docs/scrmap-format.md for the format contract.
 
 import { execFileSync } from 'node:child_process'
@@ -10,10 +14,14 @@ import path from 'node:path'
 const args = process.argv.slice(2)
 let projectRoot = '.'
 let outPath = null
+let platforms = ['ios']
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--out') outPath = args[++i]
+  else if (args[i] === '--platforms') platforms = args[++i].split(',').map((s) => s.trim()).filter(Boolean)
   else projectRoot = args[i]
 }
+const multi = platforms.length > 1
+const PLATFORM_LABELS = { ios: 'ios-simulator', android: 'android-emulator' }
 projectRoot = path.resolve(projectRoot)
 const base = path.join(projectRoot, '.screenmap', 'out')
 
@@ -41,20 +49,38 @@ const flows = flowFiles
   })
   .filter(Boolean)
 
-const shotsDir = path.join(base, 'screens')
-const shotFiles = fs.existsSync(shotsDir)
-  ? fs.readdirSync(shotsDir).filter((f) => /\.(png|jpe?g|webp)$/i.test(f))
-  : []
+const shotsDirFor = (pf) => path.join(base, 'screens', ...(multi ? [pf] : []))
+const shotsByPlatform = Object.fromEntries(platforms.map((pf) => {
+  const d = shotsDirFor(pf)
+  return [pf, fs.existsSync(d) ? fs.readdirSync(d).filter((f) => /\.(png|jpe?g|webp)$/i.test(f)) : []]
+}))
 
 const appName = graph.appName ?? path.basename(graph.projectRoot ?? projectRoot)
 
-const nodes = graph.routes.map((r) => {
-  const cs = captureStatus[r.id] ?? {}
+// capture-status.json is keyed by platform when several are packed, by route
+// id when one is — the same shape the CI packer writes
+const statusFor = (pf) => (multi ? captureStatus[pf] ?? {} : captureStatus)
+const captureOf = (r, pf) => {
+  const cs = statusFor(pf)[r.id] ?? {}
+  const shotFiles = shotsByPlatform[pf]
+  const prefix = multi ? `screens/${pf}/` : 'screens/'
   const baseShot = shotFiles.find((f) => f.replace(/\.\w+$/, '') === r.slug)
   const states = shotFiles
     .filter((f) => f.startsWith(r.slug + '--'))
-    .map((f) => ({ name: f.replace(/\.\w+$/, '').slice(r.slug.length + 2), screenshot: 'screens/' + f }))
+    .map((f) => ({ name: f.replace(/\.\w+$/, '').slice(r.slug.length + 2), screenshot: prefix + f }))
     .sort((a, b) => a.name.localeCompare(b.name))
+  return {
+    status: cs.status ?? (baseShot ? 'ok' : 'missing'),
+    note: cs.note ?? null,
+    // a route the provider says has no URL is navigation-only by definition
+    needsNavigation: cs.needsNavigation ?? r.reach === 'navigation-only',
+    screenshot: baseShot ? prefix + baseShot : null,
+    states,
+  }
+}
+
+const nodes = graph.routes.map((r) => {
+  const per = Object.fromEntries(platforms.map((pf) => [pf, captureOf(r, pf)]))
   return {
     id: r.id,
     urlPath: r.urlPath ?? null,
@@ -67,27 +93,28 @@ const nodes = graph.routes.map((r) => {
     params: r.params ?? [],
     presentation: r.presentation ?? null,
     stateHints: r.stateHints ?? [],
-    capture: {
-      status: cs.status ?? (baseShot ? 'ok' : 'missing'),
-      note: cs.note ?? null,
-      needsNavigation: cs.needsNavigation ?? r.reach === 'navigation-only',
-      screenshot: baseShot ? 'screens/' + baseShot : null,
-      states,
-    },
+    // `capture` mirrors the first platform so a pre-multi-platform viewer still
+    // renders the map; `captures` is the full set
+    capture: per[platforms[0]],
+    ...(multi ? { captures: per } : {}),
   }
 })
 
 const map = { nodes, edges: graph.edges ?? [], flows: [] }
+// A flow sidecar records the device it was recorded on; with several platforms
+// prefer the one whose sidecar names that platform, else fall back to any.
+const deviceFor = (pf) => flows.find((f) => f.platform === pf && f.device)?.device ?? (multi ? null : flows.find((f) => f.device)?.device ?? null)
 const manifest = {
-  formatVersion: 2,
+  formatVersion: multi ? 3 : 2,
   flowFormat: 'argent', // flows/*.yaml runnable via `argent flow run`
   generator: 'screenmap/2.0',
   app: {
     name: appName,
     scheme: graph.scheme ?? null,
-    platform: 'ios-simulator',
-    device: flows.find((f) => f.device)?.device ?? null,
+    platform: PLATFORM_LABELS[platforms[0]] ?? platforms[0],
+    device: deviceFor(platforms[0]) ?? (multi ? null : flows.find((f) => f.device)?.device ?? null),
     mode: graph.mode ?? null,
+    ...(multi ? { platforms: platforms.map((pf) => ({ platform: pf, label: PLATFORM_LABELS[pf] ?? pf, device: deviceFor(pf) })) } : {}),
   },
   generatedAt: new Date().toISOString(),
 }
@@ -97,7 +124,11 @@ try {
   fs.writeFileSync(path.join(stage, 'manifest.json'), JSON.stringify(manifest, null, 2))
   fs.writeFileSync(path.join(stage, 'map.json'), JSON.stringify(map, null, 2))
   fs.mkdirSync(path.join(stage, 'screens'))
-  for (const f of shotFiles) fs.copyFileSync(path.join(shotsDir, f), path.join(stage, 'screens', f))
+  for (const pf of platforms) {
+    const dest = path.join(stage, 'screens', ...(multi ? [pf] : []))
+    fs.mkdirSync(dest, { recursive: true })
+    for (const f of shotsByPlatform[pf]) fs.copyFileSync(path.join(shotsDirFor(pf), f), path.join(dest, f))
+  }
   fs.mkdirSync(path.join(stage, 'flows'))
   for (const f of flowFiles) fs.copyFileSync(path.join(flowsDir, f), path.join(stage, 'flows', f))
 
@@ -106,7 +137,8 @@ try {
   fs.rmSync(outPath, { force: true })
   execFileSync('zip', ['-r', '-q', outPath, 'manifest.json', 'map.json', 'screens', 'flows'], { cwd: stage })
   const kb = Math.round(fs.statSync(outPath).size / 1024)
-  console.log(`wrote ${outPath} (${kb} KB, ${nodes.length} nodes, ${map.edges.length} edges, ${flows.length} flows, ${shotFiles.length} screenshots)`)
+  const shotCount = platforms.reduce((n, pf) => n + shotsByPlatform[pf].length, 0)
+  console.log(`wrote ${outPath} (${kb} KB, ${nodes.length} nodes, ${map.edges.length} edges, ${flows.length} flows, ${shotCount} screenshots across ${platforms.join('+')})`)
 } finally {
   fs.rmSync(stage, { recursive: true, force: true })
 }

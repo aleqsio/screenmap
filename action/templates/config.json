@@ -3,8 +3,17 @@
   "$effort": "fast | balanced (default) | thorough — token cost and speed vs accuracy. fast: agent only sees screens no flow can reach. balanced: also re-checks routes whose deep link guesses a param. thorough: every screen goes through the agent. Anything you set below wins over the preset.",
   "effort": "balanced",
   "scheme": "myapp",
-  "device": "iPhone 17 Pro",
   "appName": "myapp",
+  "$platforms": "Which platforms a local run captures: [\"ios\"] (default), [\"android\"], or both — both puts every screen in one map with a platform switcher. In CI each platform is its own job (see the workflow templates), so the Action takes one platform and the jobs are merged afterwards.",
+  "platforms": ["ios"],
+  "ios": {
+    "$comment": "device is the simulator name; bundleId/appPath are discovered when omitted. The pre-multi-platform top-level device/bundleId/appPath keys still mean iOS.",
+    "device": "iPhone 17 Pro"
+  },
+  "android": {
+    "$comment": "device is the AVD name or the model of an attached device; null takes whatever is attached, else the first AVD. packageName/appPath are discovered when omitted.",
+    "device": null
+  },
   "waits": { "transition": 2500, "network": 6000, "boot": 15000 },
   "suspects": { "broadCap": 8 },
   "agent": {

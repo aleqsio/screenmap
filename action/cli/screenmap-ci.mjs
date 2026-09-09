@@ -13,18 +13,26 @@
 //   screenmap-ci flows-pr --repo owner/name --flows <dir> [--base main] --title "…" [--body "…"]
 //   screenmap-ci flows-adopt --project <dir> [--from .screenmap/out/flows] [--to .screenmap/flows] [--force]
 //                      move locally recorded flows into the directory CI replays from
-//   screenmap-ci resolve-app --project <dir> [--profile development-simulator]   (EAS: reuse-by-fingerprint or build)
+//   screenmap-ci resolve-app --project <dir> [--platform ios|android] [--profile <name>]
+//                      (EAS: reuse-by-fingerprint or build)
+//   screenmap-ci merge --inputs ios=a.scrmap,android=b.scrmap --out combined.scrmap
+//                      fold per-platform baselines into one multi-platform map
+//
+// baseline and pr capture on every platform in config.platforms (default
+// ["ios"]); --platform <name> narrows a run to one of them, which is how the
+// Action splits iOS and Android across two runners.
 //
 // Runs locally too: the same commands the Action runs, against your own
-// simulator. See docs/ci.md.
+// simulator or emulator. See docs/ci.md.
 import fs from 'node:fs'
 import path from 'node:path'
-import { parseArgs, loadConfig, readJson, writeJson, ensureDir, exists, log, sh, deepLinkFor } from './lib/util.mjs'
-import { openSession } from './lib/sim.mjs'
-import { readBaseline, parseRoutes, computeSuspects, packBaseline, packDiff, downscaleAll } from './lib/bundle.mjs'
+import { parseArgs, loadConfig, platformConfig, readJson, writeJson, ensureDir, exists, log, sh, deepLinkFor } from './lib/util.mjs'
+import { openSession } from './lib/device.mjs'
+import { readBaseline, parseRoutes, computeSuspects, packBaseline, packDiff, downscaleAll, baselineSide, platformsIn } from './lib/bundle.mjs'
 import { loadFlows, replayFlow, verifyLanding, verifyDeepLink } from './lib/replay.mjs'
 import { argentAvailable, argentVersion } from './lib/argent.mjs'
 import { runAgent, agentInfo } from './lib/agent.mjs'
+import { ocrBackend } from './lib/ocr.mjs'
 import { upsertStickyComment, publishToBranch, openFlowsPR, repoSlug } from './lib/github.mjs'
 
 const { opts, positional } = parseArgs(process.argv.slice(2))
@@ -56,7 +64,7 @@ async function captureRoutes({ project, config, scheme, session, routes, flows, 
       await session.relaunch() // every replay starts from a clean app
       let wrote = 0, broke = null
       for (const rec of recs) {
-        const { ok, written } = await replayFlow(rec, { udid: session.udid, outDir, tmpDir: path.join(work, 'tmp') })
+        const { ok, written } = await replayFlow(rec, { device: session, outDir, tmpDir: path.join(work, 'tmp') })
         wrote += written.length
         if (!ok) { broke = rec.name; log(`replay ${rec.name} failed — falling back`); break }
       }
@@ -64,7 +72,7 @@ async function captureRoutes({ project, config, scheme, session, routes, flows, 
       if (!broke && wrote > 0 && exists(shot)) {
         const primary = f.nav ?? f.visit ?? recs[0]
         const v = await verifyLanding({
-          shot, rec: primary, udid: session.udid,
+          shot, rec: primary, device: session,
           probe: async () => { const link = deepLinkFor(scheme, r, config.params); if (!link) return null; try { await session.relaunch(); const p = path.join(work, 'tmp', `${r.slug}.deeplink.png`); await session.visit(link, p, r.params?.length ? config.waits.network : config.waits.transition); return p } catch { return null } },
         })
         if (v.ok) { result.replay.push(r.id); done = true; log(`replay ${primary.name} ✓ (${v.method}${v.score != null ? ` ${v.score}` : ''})`) }
@@ -150,7 +158,8 @@ async function captureRoutes({ project, config, scheme, session, routes, flows, 
     const screens = candidates.map((r) => ({ id: r.id, urlPath: r.urlPath, slug: r.slug, file: r.file, deepLink: deepLinkFor(scheme, r, config.params), reason: r.reason }))
     if (extra.length) log(`effort=${config.effort} (scan=${scan}): ${result.unflowed.length} flowless + ${extra.length} re-checked`)
     const a = runAgent({
-      projectDir: project, config, screens, scheme, udid: session.udid, bundleId: session.bundleId,
+      projectDir: project, config, screens, scheme, udid: session.id, bundleId: session.appId,
+      platform: session.platform, deviceName: session.deviceName,
       outScreensDir: path.join(agentDir, 'screens'), outFlowsDir: path.join(agentDir, 'flows'),
       notesPath: path.join(agentDir, 'notes.json'), summaryPath: path.join(agentDir, 'summary.json'),
       mode: agentMode, prContext,
@@ -186,63 +195,99 @@ async function baseline() {
   const commit = opts.commit ?? git(['rev-parse', 'HEAD'], project)
   const ref = opts.ref ?? git(['rev-parse', '--abbrev-ref', 'HEAD'], project)
   const appName = config.appName ?? graph.appName ?? path.basename(project)
-  const screensDir = ensureDir(path.join(work, 'screens'))
-  let captureStatus = {}
+  const platforms = opts.platform ? [String(opts.platform)] : config.platforms
+  const multi = platforms.length > 1
 
-  // previous baseline → reuse what didn't change
-  let routes = graph.routes
-  let reused = 0
-  let prev = null
+  // Which screens changed is static analysis — the same answer on every
+  // platform — so the suspect set is computed once and each platform then
+  // decides reuse against its own side of the previous bundle.
+  let prev = null, suspect = null, prevCommit = null
   if (opts.previous && exists(opts.previous) && !opts.full) {
     prev = readBaseline(opts.previous, path.join(work, 'prev'))
-    const prevCommit = prev.manifest.source?.commit
+    prevCommit = prev.manifest.source?.commit
     const changed = prevCommit ? git(['diff', '--name-only', prevCommit, 'HEAD'], project) : null
     if (changed === null) {
       log('previous baseline commit not in history — doing a full capture')
+      prev = null
     } else {
       const suspects = computeSuspects({ diffDir: path.join(work, 'diff'), baseGraph: prev.graph, headGraph: graph, changedFiles: changed.split('\n').filter(Boolean), projectDir: project, depth: config.suspects.depth, broadCap: config.suspects.broadCap })
-      const suspect = new Set(suspects.capture.filter((c) => c.status !== 'D').map((c) => c.id))
-      const prevById = new Map(prev.map.nodes.map((n) => [n.id, n]))
-      const prevStatus = readJson(path.join(prev.dir, 'capture-status.json'), {})
-      routes = []
-      for (const r of graph.routes) {
-        const p = prevById.get(r.id)
-        const stale = suspect.has(r.id) || !p?.capture?.screenshot || ['error-boundary', 'loading', 'missing'].includes(p?.capture?.status)
-        if (stale) routes.push({ ...r, reason: suspect.has(r.id) ? 'changed since baseline' : 'no usable previous capture' })
-        else { copyShots(prev.screensDir, screensDir, r.slug); reused++; if (prevStatus[r.id]) captureStatus[r.id] = prevStatus[r.id] }
-      }
-      log(`incremental baseline: ${routes.length} to capture, ${reused} reused from ${prevCommit.slice(0, 7)}`)
+      suspect = new Set(suspects.capture.filter((c) => c.status !== 'D').map((c) => c.id))
     }
   }
-  if (opts.only) { const only = new Set(String(opts.only).split(',')); routes = routes.filter((r) => only.has(r.id)) }
-  if (opts.limit) routes = routes.slice(0, Number(opts.limit))
 
   const flowDirs = [config.flowsDir, '.screenmap/out/flows']
   const flows = loadFlows(project, flowDirs)
   const flowsDirForPack = flowDirs.map((d) => path.resolve(project, d)).find((d) => exists(d)) ?? path.resolve(project, config.flowsDir)
-  let cap = { replay: [], deeplink: [], agent: [], failed: [], unflowed: [] }
-  let deviceName = config.device
-  if (routes.length && !opts['no-sim']) {
-    const session = await openSession({ projectDir: project, config, scheme })
-    deviceName = session.deviceName
-    try {
-      cap = await captureRoutes({ project, config, scheme, session, routes, flows, outDir: screensDir, work, agentMode: 'baseline', agentEnabled: !opts['no-agent'] })
-    } finally { session.close() }
+
+  const sides = []
+  for (const platform of platforms) {
+    const pc = platformConfig(config, platform)
+    const screensDir = ensureDir(path.join(work, 'screens', platform))
+    const captureStatus = {}
+    let routes = graph.routes
+    let reused = 0
+    if (prev) {
+      const side = baselineSide(prev, platform)
+      const prevById = new Map(prev.map.nodes.map((n) => [n.id, n]))
+      routes = []
+      for (const r of graph.routes) {
+        const c = side.capture(prevById.get(r.id))
+        // a platform turned on since the last baseline has no side of its own,
+        // so nothing is reusable and it captures in full
+        const stale = suspect.has(r.id) || !side.exists || !c?.screenshot || ['error-boundary', 'loading', 'missing'].includes(c?.status)
+        if (stale) routes.push({ ...r, reason: suspect.has(r.id) ? 'changed since baseline' : 'no usable previous capture' })
+        else { copyShots(side.dir, screensDir, r.slug); reused++; if (side.status[r.id]) captureStatus[r.id] = side.status[r.id] }
+      }
+      log(`incremental baseline (${platform}): ${routes.length} to capture, ${reused} reused from ${prevCommit.slice(0, 7)}`)
+    }
+    if (opts.only) { const only = new Set(String(opts.only).split(',')); routes = routes.filter((r) => only.has(r.id)) }
+    if (opts.limit) routes = routes.slice(0, Number(opts.limit))
+
+    let cap = { replay: [], deeplink: [], agent: [], failed: [], unflowed: [] }
+    let deviceName = pc.device
+    if (routes.length && !opts['no-sim']) {
+      const session = await openSession({ projectDir: project, config: pc, scheme, platform })
+      deviceName = session.deviceName
+      try {
+        cap = await captureRoutes({ project, config: pc, scheme, session, routes, flows, outDir: screensDir, work: path.join(work, platform), agentMode: 'baseline', agentEnabled: !opts['no-agent'] })
+      } finally { session.close() }
+    }
+    for (const id of cap.failed) captureStatus[id] = { status: 'missing', note: `deep link failed in CI (${platform})` }
+    downscaleAll(screensDir)
+    sides.push({ platform, device: deviceName, screensDir, cap, captureStatus, reused })
   }
-  for (const id of cap.failed) captureStatus[id] = { status: 'missing', note: 'deep link failed in CI' }
-  downscaleAll(screensDir)
+
   const out = path.resolve(opts.out ?? path.join(work, `${appName}-${(commit ?? 'local').slice(0, 7)}.scrmap`))
-  packBaseline({ graph, screensDir, flowsDir: flowsDirForPack, captureStatus, appName, device: deviceName, commit, ref, out })
+  packBaseline({
+    graph, flowsDir: flowsDirForPack, appName, commit, ref, out,
+    platforms: sides.map((s) => ({ platform: s.platform, device: s.device, screensDir: s.screensDir })),
+    captureStatus: multi ? Object.fromEntries(sides.map((s) => [s.platform, s.captureStatus])) : sides[0].captureStatus,
+  })
+  const sum = (f) => sides.reduce((n, s) => n + f(s), 0)
   const summary = {
-    kind: 'baseline', app: appName, commit, ref, bundle: out, total: graph.routes.length, reused,
-    device: deviceName, argent: argentVersion(),
-    captured: { replay: cap.replay.length, deeplink: cap.deeplink.length, agent: cap.agent.length, failed: cap.failed },
-    unflowed: cap.unflowed.map((r) => r.id), drifted: cap.drifted ?? [], agent: cap.agentRun ?? { ran: false }, recordedFlowsDir: cap.recordedFlowsDir ?? null,
+    kind: 'baseline', app: appName, commit, ref, bundle: out, total: graph.routes.length,
+    reused: sum((s) => s.reused),
+    platforms: sides.map((s) => ({
+      platform: s.platform, device: s.device, reused: s.reused,
+      captured: { replay: s.cap.replay.length, deeplink: s.cap.deeplink.length, agent: s.cap.agent.length, failed: s.cap.failed },
+      unflowed: s.cap.unflowed.map((r) => r.id), drifted: s.cap.drifted ?? [], agent: s.cap.agentRun ?? { ran: false },
+    })),
+    // the first platform stays the headline one so existing consumers (the PR
+    // comment, the shot renderer) keep reading the fields they always read
+    device: sides.map((s) => s.device).filter(Boolean).join(' · ') || null,
+    argent: argentVersion(), ocr: ocrBackend(),
+    captured: {
+      replay: sum((s) => s.cap.replay.length), deeplink: sum((s) => s.cap.deeplink.length),
+      agent: sum((s) => s.cap.agent.length), failed: sides.flatMap((s) => s.cap.failed),
+    },
+    unflowed: [...new Set(sides.flatMap((s) => s.cap.unflowed.map((r) => r.id)))],
+    drifted: sides.flatMap((s) => s.cap.drifted ?? []),
+    agent: sides[0].cap.agentRun ?? { ran: false },
+    recordedFlowsDir: sides.map((s) => s.cap.recordedFlowsDir).find(Boolean) ?? null,
   }
   writeJson(path.join(work, 'summary.json'), summary)
   console.log(JSON.stringify(summary, null, 2))
 }
-
 async function pr() {
   const project = path.resolve(opts.project ?? '.')
   const config = loadConfig(project)
@@ -255,6 +300,8 @@ async function pr() {
   const baseSha = opts.base ?? base.manifest.source?.commit ?? null
   const headSha = opts.head ?? git(['rev-parse', 'HEAD'], project)
   const appName = config.appName ?? headGraph.appName ?? base.manifest.app?.name ?? path.basename(project)
+  const platforms = opts.platform ? [String(opts.platform)] : config.platforms
+  const multi = platforms.length > 1
   let changed = opts['changed-files'] ? fs.readFileSync(opts['changed-files'], 'utf8').split('\n').filter(Boolean) : null
   if (!changed && baseSha) changed = (git(['diff', '--name-only', `${baseSha}...${headSha}`], project) ?? git(['diff', '--name-only', baseSha, headSha], project) ?? '').split('\n').filter(Boolean)
   if (!changed) throw new Error('cannot determine changed files: pass --changed-files <list> or make sure the base commit is fetched')
@@ -263,76 +310,106 @@ async function pr() {
   const suspects = computeSuspects({ diffDir, baseGraph: base.graph, headGraph, changedFiles: changed, projectDir: project, depth: config.suspects.depth, broadCap: config.suspects.broadCap })
   writeJson(path.join(diffDir, 'pr.json'), { number: opts.pr ? Number(opts.pr) : undefined, title: opts.title, url: opts.url, baseSha, headSha, baseRef: opts['base-ref'] ?? base.manifest.source?.ref ?? null, headRef: opts['head-ref'] ?? null })
 
-  // base side comes from the baseline — nothing is captured twice
-  const baseStatus = readJson(path.join(base.dir, 'capture-status.json'), {})
-  const baseSubset = {}
-  for (const c of suspects.capture.filter((c) => c.side !== 'head')) {
-    copyShots(base.screensDir, path.join(diffDir, 'base', 'screens'), c.slug)
-    if (baseStatus[c.id]) baseSubset[c.id] = baseStatus[c.id]
-  }
-  writeJson(path.join(diffDir, 'base', 'capture-status.json'), baseSubset)
-
-  // head side: capture suspects on the PR head
   const headRoutes = suspects.capture.filter((c) => c.side !== 'base').map((c) => ({ ...headGraph.routes.find((r) => r.id === c.id), reason: `${c.status}: ${c.reason}${c.via?.length ? ' via ' + c.via.join(', ') : ''}` })).filter((r) => r.id)
   const flows = loadFlows(project, [config.flowsDir, '.screenmap/out/flows'])
-  let cap = { replay: [], deeplink: [], agent: [], failed: [], unflowed: [] }
-  let deviceName = config.device
-  if (headRoutes.length && !opts['no-sim']) {
-    const session = await openSession({ projectDir: project, config, scheme })
-    deviceName = session.deviceName
-    try {
-      cap = await captureRoutes({
-        project, config, scheme, session, routes: headRoutes, flows, outDir: path.join(diffDir, 'head', 'screens'), work,
-        agentMode: 'pr', agentEnabled: !opts['no-agent'],
-        prContext: `${opts.title ?? ''} — changed files: ${changed.slice(0, 40).join(', ')}${changed.length > 40 ? ` (+${changed.length - 40})` : ''}`,
-      })
-    } finally { session.close() }
+  const prContext = `${opts.title ?? ''} — changed files: ${changed.slice(0, 40).join(', ')}${changed.length > 40 ? ` (+${changed.length - 40})` : ''}`
+
+  const sides = []
+  const baseStatusByPlatform = {}, headStatusByPlatform = {}
+  for (const platform of platforms) {
+    const pc = platformConfig(config, platform)
+    const sub = multi ? [platform] : []
+    // base side comes from the baseline — nothing is captured twice
+    const prevSide = baselineSide(base, platform)
+    const baseSubset = {}
+    for (const c of suspects.capture.filter((c) => c.side !== 'head')) {
+      copyShots(prevSide.dir, path.join(diffDir, 'base', 'screens', ...sub), c.slug)
+      if (prevSide.status[c.id]) baseSubset[c.id] = prevSide.status[c.id]
+    }
+    baseStatusByPlatform[platform] = baseSubset
+
+    // head side: capture suspects on the PR head
+    let cap = { replay: [], deeplink: [], agent: [], failed: [], unflowed: [] }
+    let deviceName = pc.device
+    const headScreens = path.join(diffDir, 'head', 'screens', ...sub)
+    if (headRoutes.length && !opts['no-sim']) {
+      const session = await openSession({ projectDir: project, config: pc, scheme, platform })
+      deviceName = session.deviceName
+      try {
+        cap = await captureRoutes({
+          project, config: pc, scheme, session, routes: headRoutes, flows, outDir: headScreens, work: path.join(work, platform),
+          agentMode: 'pr', agentEnabled: !opts['no-agent'], prContext,
+        })
+      } finally { session.close() }
+    }
+    // notes are about the change, not the device — the first platform to
+    // produce them wins rather than each overwriting the last
+    if (cap.notes && !exists(path.join(diffDir, 'notes.json'))) writeJson(path.join(diffDir, 'notes.json'), cap.notes)
+    const headStatus = {}
+    for (const id of cap.failed) headStatus[id] = { status: 'missing', note: `deep link failed in CI (${platform})` }
+    headStatusByPlatform[platform] = headStatus
+    downscaleAll(headScreens)
+    sides.push({ platform, device: deviceName, cap })
   }
-  if (cap.notes) writeJson(path.join(diffDir, 'notes.json'), cap.notes)
-  const headStatus = {}
-  for (const id of cap.failed) headStatus[id] = { status: 'missing', note: 'deep link failed in CI' }
-  writeJson(path.join(diffDir, 'head', 'capture-status.json'), headStatus)
-  downscaleAll(path.join(diffDir, 'head', 'screens'))
+  writeJson(path.join(diffDir, 'base', 'capture-status.json'), multi ? baseStatusByPlatform : baseStatusByPlatform[platforms[0]])
+  writeJson(path.join(diffDir, 'head', 'capture-status.json'), multi ? headStatusByPlatform : headStatusByPlatform[platforms[0]])
+
   const out = path.resolve(opts.out ?? path.join(work, `${appName}-${opts.pr ? `pr${opts.pr}` : (headSha ?? 'head').slice(0, 7)}.diff.scrmap`))
-  packDiff({ diffDir, device: deviceName, out })
+  packDiff({ diffDir, platforms: sides.map((s) => ({ platform: s.platform, device: s.device })), out })
   const diff = readJson(path.join(diffDir, 'diff.json'))
+  const sum = (f) => sides.reduce((n, s) => n + f(s), 0)
   const summary = {
     kind: 'pr', app: appName, pr: opts.pr ? Number(opts.pr) : null, title: opts.title ?? null, baseSha, headSha, bundle: out,
-    baselineGeneratedAt: base.manifest.generatedAt, device: deviceName, argent: argentVersion(),
+    baselineGeneratedAt: base.manifest.generatedAt,
+    device: sides.map((s) => s.device).filter(Boolean).join(' · ') || null,
+    argent: argentVersion(), ocr: ocrBackend(),
+    platforms: sides.map((s) => ({
+      platform: s.platform, device: s.device,
+      captured: { replay: s.cap.replay.length, deeplink: s.cap.deeplink.length, agent: s.cap.agent.length, failed: s.cap.failed },
+      drifted: s.cap.drifted ?? [], unverified: s.cap.unverified ?? [], agent: s.cap.agentRun ?? { ran: false },
+    })),
     suspects: { added: suspects.capture.filter((c) => c.status === 'A').length, modified: suspects.capture.filter((c) => c.status === 'M').length, removed: suspects.capture.filter((c) => c.status === 'D').length, broadFiles: suspects.broadFiles },
-    captured: { replay: cap.replay.length, deeplink: cap.deeplink.length, agent: cap.agent.length, failed: cap.failed },
-    agent: cap.agentRun ?? { ran: false }, recordedFlowsDir: cap.recordedFlowsDir ?? null, drifted: cap.drifted ?? [],
-    unverified: cap.unverified ?? [],
+    captured: {
+      replay: sum((s) => s.cap.replay.length), deeplink: sum((s) => s.cap.deeplink.length),
+      agent: sum((s) => s.cap.agent.length), failed: sides.flatMap((s) => s.cap.failed),
+    },
+    agent: sides[0].cap.agentRun ?? { ran: false },
+    recordedFlowsDir: sides.map((s) => s.cap.recordedFlowsDir).find(Boolean) ?? null,
+    drifted: sides.flatMap((s) => s.cap.drifted ?? []),
+    unverified: sides.flatMap((s) => s.cap.unverified ?? []),
     diff: { nodes: diff.nodes, dismissed: diff.dismissed ?? [], edges: diff.edges, states: (diff.states ?? []).filter((s) => s.reason !== 'hint') },
     // base first so head wins on collision: a removed route only exists on the
     // base side, and without it the comment prints its bare id ("grind")
     // where every other row shows a path ("/grind")
     routes: Object.fromEntries([...base.graph.routes, ...headGraph.routes].map((r) => [r.id, r.title ?? r.urlPath ?? r.id])),
-    shots: collectShots(diffDir, [...headGraph.routes, ...base.graph.routes], [...diff.nodes.map((d) => d.id), ...(diff.dismissed ?? []).map((d) => d.id)]),
+    shots: collectShots(diffDir, [...headGraph.routes, ...base.graph.routes], [...diff.nodes.map((d) => d.id), ...(diff.dismissed ?? []).map((d) => d.id)], multi ? platforms[0] : null),
   }
   writeJson(path.join(work, 'summary.json'), summary)
   console.log(JSON.stringify(summary, null, 2))
 }
 
-// Bundle-relative paths of every capture the comment might want to show:
-// per node, the bare screen on each side plus one entry per named state. Only
-// files that actually exist are listed, so the renderer can just check.
-function collectShots(diffDir, routes, ids) {
+// Paths the PR comment's images are published under. The comment shows ONE
+// platform — a side-by-side strip of both would not fit GitHub's table — so a
+// multi-platform run passes the platform whose screens the comment should show
+// (the first captured), and the bundle still carries every platform.
+function collectShots(diffDir, routes, ids, platform = null) {
   const slugOf = new Map(routes.map((r) => [r.id, r.slug]))
+  const sub = platform ? [platform] : []
+  const rel = (side, f) => [side, 'screens', ...sub, f].join('/')
   const out = {}
   for (const id of new Set(ids)) {
     const slug = slugOf.get(id)
     if (!slug) continue
     const entry = { states: {} }
     for (const side of ['head', 'base']) {
-      const dir = path.join(diffDir, side, 'screens')
+      const dir = path.join(diffDir, side, 'screens', ...sub)
       if (!exists(dir)) continue
       for (const f of fs.readdirSync(dir)) {
         const stem = f.replace(/\.\w+$/, '')
-        if (stem === slug) entry[side] = `${side}/screens/${f}`
+        if (stem === slug) entry[side] = rel(side, f)
         else if (stem.startsWith(slug + '--')) {
           const name = stem.slice(slug.length + 2)
-          ;(entry.states[name] ??= {})[side] = `${side}/screens/${f}`
+          ;(entry.states[name] ??= {})[side] = rel(side, f)
         }
       }
     }
@@ -493,7 +570,11 @@ function renderComment(s, { mapUrl, changesUrl, artifactUrl, shotUrl, shotsBase,
     else if (a.keyEnv === null && a.hasKey === null) agentDesc += ' · no LLM key configured'
   }
   const foot = [
-    `Captured on ${s.device ?? 'simulator'}: ${s.captured.replay} by flow replay${s.argent ? ` (argent ${s.argent})` : ''}, ${s.captured.deeplink} by deep link, ${s.captured.agent} by agent (${agentDesc}).`,
+    `Captured on ${s.device ?? 'simulator'}${s.platforms?.length > 1 ? ` (${s.platforms.map((p) => p.platform).join(' + ')})` : ''}: ${s.captured.replay} by flow replay${s.argent ? ` (argent ${s.argent})` : ''}, ${s.captured.deeplink} by deep link, ${s.captured.agent} by agent (${agentDesc}).`,
+    // tesseract reads roughly two thirds of the words Vision does, which makes
+    // a drift or verification warning likelier to be the OCR's fault than the
+    // app's. Say which backend read the screens whenever it is not Vision.
+    s.ocr && s.ocr !== 'vision' ? `Screen text read with ${s.ocr === 'tesseract' ? 'tesseract (lower recall than Vision — verification warnings here are less certain)' : s.ocr}.` : null,
     s.baselineGeneratedAt ? `Compared against baseline \`${(s.baseSha ?? '').slice(0, 7)}\` from ${new Date(s.baselineGeneratedAt).toISOString().slice(0, 16).replace('T', ' ')} UTC.` : null,
     `${A.length} added · ${M.length} changed · ${D.length} removed · ${dismissed.length} suspect${dismissed.length === 1 ? '' : 's'} cleared by looking.`,
     s.suspects.broadFiles?.length ? `${s.suspects.broadFiles.length} broadly-imported changed file${s.suspects.broadFiles.length === 1 ? '' : 's'} excluded from suspect marking.` : null,
@@ -636,12 +717,67 @@ async function shot() {
 }
 
 async function resolveAppCmd() {
-  const { resolveApp } = await import('./lib/eas.mjs')
+  const { resolveApp, DEFAULT_PROFILES } = await import('./lib/eas.mjs')
   const project = path.resolve(opts.project ?? '.')
-  const res = resolveApp({ projectDir: project, profile: opts.profile ?? 'development-simulator', workDir: path.resolve(opts.work ?? path.join(project, '.screenmap', 'out', 'ci', 'eas')) })
+  const platform = String(opts.platform ?? 'ios')
+  const res = resolveApp({
+    projectDir: project, platform,
+    profile: opts.profile ?? DEFAULT_PROFILES[platform] ?? DEFAULT_PROFILES.ios,
+    workDir: path.resolve(opts.work ?? path.join(project, '.screenmap', 'out', 'ci', 'eas', platform)),
+  })
   console.log(JSON.stringify(res, null, 2))
 }
 
-const commands = { baseline, pr, comment, status, publish, 'flows-pr': flowsPr, 'flows-adopt': flowsAdopt, 'resolve-app': resolveAppCmd, shot }
-if (!commands[cmd]) { console.error('usage: screenmap-ci <baseline|pr|comment|status|publish|flows-pr|flows-adopt|resolve-app|shot> [options]'); process.exit(1) }
+// Fold single-platform baselines into one multi-platform map. iOS has to run on
+// a macOS runner and Android is only worth doing on Linux, so the two platforms
+// are captured by separate jobs; this is what makes their output one bundle
+// rather than two the reader has to hold side by side.
+//
+// The graph, edges and flows come from the FIRST input: they are static
+// analysis of the same commit, so every input agrees on them, and picking one
+// beats reconciling identical copies.
+async function merge() {
+  if (!opts.inputs) throw new Error('--inputs ios=a.scrmap,android=b.scrmap is required')
+  const parsed = String(opts.inputs).split(',').map((pair) => {
+    const i = pair.indexOf('=')
+    if (i < 0) throw new Error(`--inputs entry "${pair}" must be <platform>=<file.scrmap>`)
+    return { platform: pair.slice(0, i).trim(), file: path.resolve(pair.slice(i + 1).trim()) }
+  })
+  const work = ensureDir(path.resolve(opts.work ?? path.join(process.cwd(), '.screenmap-merge')))
+  const sides = []
+  let first = null
+  const captureStatus = {}
+  for (const { platform, file } of parsed) {
+    if (!exists(file)) { log(`merge: skipping ${platform} — ${file} not found`); continue }
+    const b = readBaseline(file, path.join(work, platform))
+    first ??= b
+    const side = baselineSide(b, platform)
+    // Refuse a bundle that does not carry the platform it is being merged as.
+    // Two artifact paths swapped in a workflow is an easy mistake to make and an
+    // impossible one to spot afterwards: the map would show iOS screenshots
+    // under the Android switch and look entirely plausible.
+    if (!side.exists) {
+      throw new Error(`merge: ${file} does not carry ${platform} captures (it holds ${platformsIn(b.manifest).join(', ')}) — check the --inputs mapping`)
+    }
+    // a single-platform input has its screens at screens/, a multi-platform one
+    // at screens/<platform>/ — baselineSide answers for both
+    sides.push({ platform, device: b.manifest.app?.device ?? null, screensDir: side.dir })
+    captureStatus[platform] = side.status
+  }
+  if (!sides.length) throw new Error('merge: none of the inputs existed')
+  if (sides.length === 1) log(`merge: only ${sides[0].platform} was available — writing a single-platform map`)
+  const out = path.resolve(opts.out ?? path.join(work, 'merged.scrmap'))
+  packBaseline({
+    graph: first.graph, platforms: sides, flowsDir: first.flowsDir,
+    captureStatus: sides.length > 1 ? captureStatus : captureStatus[sides[0].platform],
+    appName: opts.app ?? first.manifest.app?.name ?? 'app',
+    commit: opts.commit ?? first.manifest.source?.commit ?? null,
+    ref: opts.ref ?? first.manifest.source?.ref ?? null,
+    out,
+  })
+  console.log(JSON.stringify({ kind: 'merge', bundle: out, platforms: sides.map((s) => ({ platform: s.platform, device: s.device })) }, null, 2))
+}
+
+const commands = { baseline, pr, comment, status, publish, 'flows-pr': flowsPr, 'flows-adopt': flowsAdopt, 'resolve-app': resolveAppCmd, merge, shot }
+if (!commands[cmd]) { console.error('usage: screenmap-ci <baseline|pr|comment|status|publish|flows-pr|flows-adopt|resolve-app|merge|shot> [options]'); process.exit(1) }
 commands[cmd]().catch((e) => { console.error('[screenmap-ci] failed:', e.message); process.exit(1) })

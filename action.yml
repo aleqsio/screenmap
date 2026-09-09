@@ -4,8 +4,8 @@ name: screenmap
 description: >-
   Map every screen of an Expo / React Native app and review what a pull request changes on-screen.
   PR runs diff the head against a cached baseline map, capture only the affected screens on an iOS
-  simulator, and post a sticky comment linking a preloaded map viewer. Baseline runs refresh the map
-  of main incrementally and open a flows PR for screens the agent had to explore.
+  simulator or Android emulator, and post a sticky comment linking a preloaded map viewer. Baseline
+  runs refresh the map of main incrementally and open a flows PR for screens the agent had to explore.
 author: aleqsio
 branding:
   icon: map
@@ -18,6 +18,13 @@ inputs:
   project:
     description: Path to the Expo project (repo-relative)
     default: "."
+  platform:
+    description: >-
+      ios (default, needs a macOS runner) or android (runs on ubuntu, which bills at a tenth of the
+      macOS rate). One platform per job: to get both in one map, run this action twice — iOS on
+      macos-latest, Android on ubuntu-latest — and fold the two bundles together with
+      `screenmap-ci merge --inputs ios=<a>.scrmap,android=<b>.scrmap`. See the workflow templates.
+    default: ios
   agent_provider:
     description: "Agent CLI for screens with no committed flow: claude (default) | codex | gemini | opencode. Or set agent.command in .screenmap/config.json to run any CLI."
     default: ""
@@ -60,17 +67,38 @@ inputs:
     description: Hosted map viewer origin used in comment links
     default: https://app.screenmap.dev
   simulator:
-    description: Simulator device name to boot (falls back to any available iPhone)
+    description: (ios) Simulator device name to boot (falls back to any available iPhone)
     default: iPhone 17 Pro
+  avd:
+    description: >-
+      (android) Name of the AVD to boot. When it does not exist the action creates it from
+      android_system_image. Ignored if a device or emulator is already attached to adb.
+    default: screenmap
+  android_system_image:
+    description: (android) System image for the AVD the action creates, in sdkmanager form
+    default: system-images;android-34;google_apis;x86_64
   app_path:
-    description: Path to a prebuilt simulator dev client (.app). Bring your own build — from a previous job's artifact, your own pipeline, or `eas build:run`-style downloads. When set, EAS is not touched.
+    description: >-
+      Path to a prebuilt dev client — an .app bundle for ios, an .apk for android. Bring your own
+      build — from a previous job's artifact, your own pipeline, or `eas build:run`-style downloads.
+      When set, EAS is not touched.
     default: ""
   expo_token:
     description: EXPO_TOKEN for the built-in EAS lane — the dev client is fetched from EAS (newest finished build whose fingerprint matches the checkout) or built there when none matches. Required unless app_path is set.
     default: ""
   eas_profile:
-    description: eas.json build profile for the simulator dev client (needs developmentClient + ios.simulator)
-    default: development-simulator
+    description: >-
+      eas.json build profile for the dev client. Empty picks per platform: development-simulator for
+      ios (needs developmentClient + ios.simulator), development-emulator for android (needs
+      developmentClient + android.buildType "apk" — an .aab cannot be installed on an emulator).
+    default: ""
+  full:
+    description: >-
+      (baseline) Recapture every screen instead of reusing the unchanged ones from the previous
+      map. The baseline workflow template has exposed this as a workflow_dispatch input since the
+      beginning, but nothing ever passed it through, so "Rebuild the whole map" quietly did an
+      incremental run.
+    default: "false"
   flows_pr:
     description: "(baseline) Open a PR against the default branch with flows the agent recorded"
     default: "true"
@@ -95,11 +123,48 @@ runs:
     - name: Check runner
       shell: bash
       run: |
-        if [ "$(uname)" != "Darwin" ]; then echo "::error::screenmap needs a macOS runner (iOS simulator)"; exit 1; fi
+        case "${{ inputs.platform }}" in
+          ios|android) ;;
+          *) echo "::error::platform must be ios or android (got '${{ inputs.platform }}')"; exit 1 ;;
+        esac
+        if [ "${{ inputs.platform }}" = "ios" ] && [ "$(uname)" != "Darwin" ]; then
+          echo "::error::platform=ios needs a macOS runner (iOS simulator)"; exit 1
+        fi
         if [ -z "${{ inputs.app_path }}${{ inputs.expo_token }}" ]; then
           echo "::error::provide expo_token (EAS builds the dev client) or app_path (bring your own build)"; exit 1
         fi
-        xcrun simctl list devices available | head -20
+        if [ "${{ inputs.platform }}" = "ios" ]; then
+          xcrun simctl list devices available | head -20
+        else
+          [ -n "$ANDROID_HOME$ANDROID_SDK_ROOT" ] || { echo "::error::no Android SDK on this runner (ANDROID_HOME unset)"; exit 1; }
+          echo "Android SDK: ${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+        fi
+
+    # Two things Linux needs that macOS brings in the box.
+    #
+    # OCR: screen text drives the landing checks, deep-link verification and
+    # system-alert dismissal. macOS uses Apple Vision (compiled on demand by
+    # lib/ocr.mjs); Linux has no Vision, so without tesseract every one of those
+    # checks silently goes dark and a drifted flow stops being detectable.
+    #
+    # libpulse0: the SDK's qemu binary links against it and GitHub's ubuntu
+    # images do not carry it, so `emulator` cannot start at all — it fails with
+    # "libpulse.so.0: cannot open shared object file". The rest are the X libs
+    # different system images pull in; they are installed one at a time and
+    # best-effort because the names drift between ubuntu releases (libasound2 vs
+    # libasound2t64) and one missing optional package should not fail the run.
+    - name: Install Linux dependencies
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y -qq tesseract-ocr imagemagick
+        if [ "${{ inputs.platform }}" = "android" ]; then
+          sudo apt-get install -y -qq libpulse0
+          for pkg in libnss3 libxcursor1 libxdamage1 libxcomposite1 libxi6 libxtst6 libasound2t64 libasound2; do
+            sudo apt-get install -y -qq "$pkg" 2>/dev/null || true
+          done
+        fi
 
     - name: Install screenmap-ci
       shell: bash
@@ -130,13 +195,98 @@ runs:
         elif [ -f yarn.lock ]; then yarn install --frozen-lockfile
         else npm ci; fi
 
-    - name: Boot simulator
+    - name: Boot simulator (ios)
+      if: inputs.platform == 'ios'
       shell: bash
       run: |
         udid=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devices"]; ds=[x for v in d.values() for x in v]; m=[x for x in ds if x["name"]=="${{ inputs.simulator }}"] or [x for x in ds if "iPhone" in x["name"]]; print(m[0]["udid"])')
         xcrun simctl boot "$udid" || true
         xcrun simctl bootstatus "$udid" -b
         echo "SIM_UDID=$udid" >> "$GITHUB_ENV"
+
+    # KVM turns a ~40-minute software-rendered emulator boot into a ~2-minute one.
+    # It is the difference between Android being cheaper than macOS and not.
+    - name: Enable KVM (android on Linux)
+      if: inputs.platform == 'android' && runner.os == 'Linux'
+      shell: bash
+      run: |
+        echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+        sudo udevadm control --reload-rules && sudo udevadm trigger --name-match=kvm
+        kvm-ok 2>/dev/null || echo "note: kvm-ok unavailable; continuing"
+
+    - name: Boot emulator (android)
+      if: inputs.platform == 'android'
+      shell: bash
+      run: |
+        set -e
+        sdk="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+        export PATH="$sdk/platform-tools:$sdk/emulator:$sdk/cmdline-tools/latest/bin:$PATH"
+        echo "$sdk/platform-tools" >> "$GITHUB_PATH"
+        echo "$sdk/emulator" >> "$GITHUB_PATH"
+        command -v sdkmanager >/dev/null || { echo "::error::sdkmanager not found under $sdk/cmdline-tools/latest/bin"; exit 1; }
+        # Pin where AVDs live. avdmanager and emulator each resolve this from a
+        # different chain ($ANDROID_AVD_HOME, then $ANDROID_SDK_HOME/.android/avd
+        # for one and $HOME/.android/avd for the other), so on a runner that sets
+        # ANDROID_SDK_HOME they write and read different directories: the AVD is
+        # created successfully and `emulator -list-avds` still comes back empty.
+        # Setting it explicitly makes both agree, and GITHUB_ENV carries it to
+        # the step that actually boots the device.
+        export ANDROID_AVD_HOME="$HOME/.android/avd"
+        mkdir -p "$ANDROID_AVD_HOME"
+        echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME" >> "$GITHUB_ENV"
+        # a device already attached (self-hosted runner, or an earlier step) wins,
+        # and needs none of the SDK packages below
+        if command -v adb >/dev/null && adb devices | awk 'NR>1 && $2=="device"' | grep -q .; then
+          echo "using the attached device: $(adb devices | awk 'NR>1 && $2=="device" {print $1}' | head -1)"
+        else
+          # Install what we actually use rather than trusting the runner image to
+          # carry it: GitHub's ubuntu images ship platform-tools, but `emulator`
+          # is not guaranteed, and a missing one surfaces as a bare
+          # "command not found" three steps later. Already-present packages are
+          # a no-op, so this costs nothing on a warm image.
+          #
+          # `yes |` needs care: GitHub runs `shell: bash` with -eo pipefail, and
+          # `yes` is killed by SIGPIPE the moment sdkmanager stops reading, so
+          # pipefail reports the whole pipeline as failed even on a clean
+          # install. Take sdkmanager's own status out of PIPESTATUS instead.
+          set +o pipefail
+          yes 2>/dev/null | sdkmanager --install "platform-tools" "emulator" "${{ inputs.android_system_image }}" >/tmp/sdkmanager.log 2>&1
+          rc=${PIPESTATUS[1]}
+          set -o pipefail
+          if [ "$rc" -ne 0 ]; then
+            tail -30 /tmp/sdkmanager.log
+            echo "::error::sdkmanager failed to install platform-tools/emulator/${{ inputs.android_system_image }}"
+            exit 1
+          fi
+          command -v avdmanager >/dev/null || { echo "::error::avdmanager not found under $sdk/cmdline-tools/latest/bin"; exit 1; }
+          if ! avdmanager list avd -c | grep -qx "${{ inputs.avd }}"; then
+            echo no | avdmanager create avd -n "${{ inputs.avd }}" -k "${{ inputs.android_system_image }}" --force
+          fi
+          # the driver (lib/android.mjs) boots it and waits for sys.boot_completed;
+          # starting it here would just duplicate that logic
+          # Gate on the emulator actually running. This used to be `|| true`,
+          # which hid a qemu that could not load libpulse: the run went on to
+          # spend seventeen minutes on an EAS build and only then failed, with
+          # "no AVD defined" — the one thing that was not wrong. Fail here, where
+          # the message can name the real cause.
+          if ! "$sdk/emulator/emulator" -version >/tmp/emulator-version.log 2>&1; then
+            tail -5 /tmp/emulator-version.log
+            echo "::error::the emulator binary cannot run on this runner (see above — a missing shared library is the usual cause)"
+            exit 1
+          fi
+          head -1 /tmp/emulator-version.log
+          # …and on it agreeing that the AVD exists. Creating one successfully
+          # and having the emulator not see it is the failure this step is most
+          # prone to, and one the next step can only report as "no AVD defined".
+          if ! "$sdk/emulator/emulator" -list-avds | grep -qx "${{ inputs.avd }}"; then
+            echo "ANDROID_AVD_HOME=$ANDROID_AVD_HOME"
+            ls -la "$ANDROID_AVD_HOME" 2>&1 | head -20
+            echo "emulator -list-avds says: $("$sdk/emulator/emulator" -list-avds 2>&1 | tr '\n' ' ')"
+            echo "::error::AVD '${{ inputs.avd }}' was created but the emulator cannot see it"
+            exit 1
+          fi
+          echo "AVD ${{ inputs.avd }} ready — the run boots it"
+        fi
 
     - name: Dev client (EAS or provided)
       id: app
@@ -147,11 +297,16 @@ runs:
         set -e
         if [ -n "${{ inputs.app_path }}" ]; then
           app="$(cd "$(dirname "${{ inputs.app_path }}")" && pwd)/$(basename "${{ inputs.app_path }}")"
-          [ -d "$app" ] || { echo "::error::app_path not found: $app"; exit 1; }
+          # an iOS dev client is a .app directory; an Android one is an .apk file
+          [ -e "$app" ] || { echo "::error::app_path not found: $app"; exit 1; }
           echo "using provided dev client: $app"
         else
           command -v eas >/dev/null || npm install -g eas-cli --silent
-          screenmap-ci resolve-app --project "${{ inputs.project }}" --profile "${{ inputs.eas_profile }}" | tee /tmp/screenmap-app.json
+          profile="${{ inputs.eas_profile }}"
+          if [ -z "$profile" ]; then
+            if [ "${{ inputs.platform }}" = "android" ]; then profile=development-emulator; else profile=development-simulator; fi
+          fi
+          screenmap-ci resolve-app --project "${{ inputs.project }}" --platform "${{ inputs.platform }}" --profile "$profile" | tee /tmp/screenmap-app.json
           app=$(python3 -c 'import json,sys;print(json.load(open("/tmp/screenmap-app.json"))["appPath"])')
         fi
         echo "app=$app" >> "$GITHUB_OUTPUT"
@@ -188,6 +343,11 @@ runs:
         AGENT_MAX_SCREENS: ${{ inputs.agent_max_screens }}
         AGENT_API_KEY: ${{ inputs.agent_api_key }}
         SCREENMAP_APP_PATH: ${{ steps.app.outputs.app }}
+        SCREENMAP_PLATFORMS: ${{ inputs.platform }}
+        # the device this action actually provisioned, so the driver boots that
+        # one rather than whichever happens to be listed first
+        SCREENMAP_DEVICE_IOS: ${{ inputs.simulator }}
+        SCREENMAP_DEVICE_ANDROID: ${{ inputs.avd }}
         GH_TOKEN: ${{ inputs.github_token }}
       run: |
         set -e
@@ -269,7 +429,9 @@ runs:
             --pr "${{ github.event.pull_request.number }}" --title "${{ github.event.pull_request.title }}" --url "${{ github.event.pull_request.html_url }}" \
             --base-ref "${{ github.event.pull_request.base.ref }}" --head-ref "${{ github.event.pull_request.head.ref }}" > .screenmap-ci/summary.json
         else
-          screenmap-ci baseline --project "$proj" $( [ "${{ steps.baseline.outputs.found }}" = "true" ] && echo "--previous .screenmap-ci/baseline.scrmap" ) > .screenmap-ci/summary.json
+          screenmap-ci baseline --project "$proj" \
+            $( [ "${{ steps.baseline.outputs.found }}" = "true" ] && echo "--previous .screenmap-ci/baseline.scrmap" ) \
+            $( [ "${{ inputs.full }}" = "true" ] && echo "--full" ) > .screenmap-ci/summary.json
         fi
         bundle=$(python3 -c 'import json;print(json.load(open(".screenmap-ci/summary.json"))["bundle"])')
         echo "bundle=$bundle" >> "$GITHUB_OUTPUT"
