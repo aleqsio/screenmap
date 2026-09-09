@@ -76,6 +76,37 @@ agreeing, which they do.
 - **The agent lane on Android.** Deliberately off (no key) for these runs, so the
   platform-specific prompt in `agent.mjs` has never been exercised.
 
+## A misdiagnosis worth remembering: doubled titles were the app's
+
+On 2026-09-09 the first Android captures of the Brew demo came back with the
+screen's large display title and the navigation header title painted over each
+other on six of eight screens — "Grind" under "Grind guide", "Hario V60" twice.
+Two of us diagnosed it wrong in a row: first as "the app's own layout quirk"
+(hand-waved past while reading a diff), then as "captured mid-transition, before
+the header animation settled". The second reading drove a real change to the
+capture path before anyone checked the app.
+
+It is neither. `screenmap-test/src/app/_layout.tsx` sets
+
+    <Stack screenOptions={{ headerTransparent: true, headerBlurEffect: 'regular' }}>
+
+and `headerBlurEffect` is iOS-only. On iOS the transparent header gets a frosted
+backdrop and the title reads against it; on Android nothing backs the header, so
+its title renders directly over the screen content. The captures were correct.
+Screenmap had found a real Android-only layout bug in the app it was mapping,
+which is the entire point of the tool, and we spent a CI run trying to make the
+screenshot stop reporting it.
+
+The lesson is narrow and cheap: when a capture looks wrong, check the app before
+changing the capture path. A screenshot that disagrees with expectations is the
+product working.
+
+`settle()` (waiting for `await-screen-idle` before every capture) was added in
+response to this and is **kept on its own merits** — waiting for the screen to
+stop changing is more correct than waiting a fixed number of milliseconds, on
+both platforms. It just never had anything to do with the doubled titles, and
+the commit that introduced it claims otherwise.
+
 ## The screenmaps branch has no platform in its paths
 
 Found while planning the first Android CI run, on 2026-09-08. Not fixed.
