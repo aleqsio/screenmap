@@ -1,8 +1,10 @@
 // Render the PR-comment image: serve the two bundles from a throwaway local
-// server (CORS-open; https viewer → http://localhost is allowed by Chrome),
-// open the hosted visualiser in headless Chrome with ?shot, wait for the
-// viewer's readiness flag, screenshot. No vite build on the runner, and it
-// works for private repos too — the bundles never leave the machine.
+// server (CORS-open), open the hosted visualiser in headless Chrome with
+// ?shot, wait for the viewer's readiness flag, screenshot. No vite build on
+// the runner, and it works for private repos too — the bundles never leave
+// the machine. Chrome's local network access check would refuse the https
+// viewer a fetch from http://localhost, so it is switched off for this one
+// headless browser.
 import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
@@ -44,7 +46,7 @@ export async function takeShot({ mapFile, changesFile, out, viewer = 'https://ap
   for (const f of Object.values(files)) if (!fs.existsSync(f)) throw new Error(`missing bundle: ${f}`)
   const server = await serveFiles(files)
   const { default: puppeteer } = await import('puppeteer-core')
-  const browser = await puppeteer.launch({ executablePath: chrome, headless: true, args: ['--no-sandbox', '--force-color-profile=srgb'] })
+  const browser = await puppeteer.launch({ executablePath: chrome, headless: true, args: ['--no-sandbox', '--force-color-profile=srgb', '--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessRespectPreflightResults,PrivateNetworkAccessSendPreflights'] })
   try {
     const params = new URLSearchParams()
     params.set('map', `http://localhost:${server.port}/base.scrmap`)
