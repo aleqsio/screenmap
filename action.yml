@@ -2,7 +2,7 @@
 # collide with AppLand's AppMap listing, hence the repo-matching name.
 name: screenmap
 description: >-
-  Map every screen of an Expo / React Native app and review what a pull request changes on-screen.
+  Map every screen of an Expo / React Native or NativeScript app and review what a pull request changes on-screen.
   PR runs diff the head against a cached baseline map, capture only the affected screens on an iOS
   simulator or Android emulator, and post a sticky comment linking a preloaded map viewer. Baseline
   runs refresh the map of main incrementally and open a flows PR for screens the agent had to explore.
@@ -16,7 +16,7 @@ inputs:
     description: "pr | baseline"
     required: true
   project:
-    description: Path to the Expo project (repo-relative)
+    description: Path to the app project (Expo or NativeScript), repo-relative
     default: "."
   platform:
     description: >-
@@ -131,7 +131,7 @@ runs:
           echo "::error::platform=ios needs a macOS runner (iOS simulator)"; exit 1
         fi
         if [ -z "${{ inputs.app_path }}${{ inputs.expo_token }}" ]; then
-          echo "::error::provide expo_token (EAS builds the dev client) or app_path (bring your own build)"; exit 1
+          echo "::error::provide expo_token (EAS builds the dev client) or app_path (bring your own build; the only option for a NativeScript app)"; exit 1
         fi
         if [ "${{ inputs.platform }}" = "ios" ]; then
           xcrun simctl list devices available | head -20
