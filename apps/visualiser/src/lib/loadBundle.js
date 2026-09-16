@@ -250,7 +250,8 @@ function matcherFor(urlPath) {
 // it carries an explicit `screen` field — how interactive flows record that a
 // tap/swipe navigated somewhere.
 export function flowResolution(map) {
-  const matchers = map.nodes.map((n) => ({ id: n.id, re: matcherFor(n.urlPath) }))
+  // a navigation-only screen has no URL for an open_url step to land on
+  const matchers = map.nodes.filter((n) => n.urlPath).map((n) => ({ id: n.id, re: matcherFor(n.urlPath) }))
   const nodeIds = new Set(map.nodes.map((n) => n.id))
   const resolve = (url) => {
     let p = url.replace(/^[a-z+.-]+:\/\//i, '')
