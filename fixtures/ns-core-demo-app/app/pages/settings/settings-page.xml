@@ -1,0 +1,7 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd">
+  <ActionBar title="Settings" />
+  <StackLayout>
+    <Switch checked="true" />
+    <Button text="Back" tap="onBack" />
+  </StackLayout>
+</Page>

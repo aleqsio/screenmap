@@ -1,0 +1,14 @@
+{
+  "name": "ns-svelte-demo",
+  "main": "app/app.ts",
+  "private": true,
+  "dependencies": {
+    "@nativescript/core": "~9.1.0",
+    "svelte-native": "~1.0.0"
+  },
+  "devDependencies": {
+    "@nativescript/webpack": "~5.0.0",
+    "svelte": "^4.0.0",
+    "typescript": "~5.9.0"
+  }
+}

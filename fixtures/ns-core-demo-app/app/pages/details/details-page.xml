@@ -1,0 +1,7 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd">
+  <ActionBar title="Details" />
+  <StackLayout>
+    <Label text="{{ id }}" />
+    <Button text="Settings" tap="onSettings" />
+  </StackLayout>
+</Page>

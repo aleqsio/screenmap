@@ -20,6 +20,13 @@ const UPDATE = process.argv.includes('--update')
 const FIXTURES = [
   { dir: 'demo-app', provider: 'expo-router' },
   { dir: 'rn-demo-app', provider: 'react-navigation' },
+  { dir: 'ns-angular-demo-app', provider: 'nativescript' },
+  { dir: 'ns-core-demo-app', provider: 'nativescript' },
+  { dir: 'ns-octane-demo-app', provider: 'nativescript' },
+  { dir: 'ns-vue-demo-app', provider: 'nativescript' },
+  { dir: 'ns-svelte-demo-app', provider: 'nativescript' },
+  { dir: 'ns-react-demo-app', provider: 'nativescript' },
+  { dir: 'ns-solid-demo-app', provider: 'nativescript' },
 ]
 
 // generatedAt and projectRoot are machine- and clock-specific.
@@ -44,7 +51,9 @@ for (const { dir, provider } of FIXTURES) {
     continue
   }
   const graph = stable(JSON.parse(fs.readFileSync(out, 'utf8')))
-  fs.rmSync(path.join(root, '.screenmap'), { recursive: true, force: true })
+  // only the generated output: a fixture may commit .screenmap/config.json
+  fs.rmSync(path.join(root, '.screenmap', 'out'), { recursive: true, force: true })
+  try { fs.rmdirSync(path.join(root, '.screenmap')) } catch {}
 
   if (graph.mode !== provider) {
     console.error(`FAIL ${dir}: expected provider "${provider}", detection chose "${graph.mode}"`)

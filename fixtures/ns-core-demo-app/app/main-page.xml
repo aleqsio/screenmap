@@ -1,0 +1,7 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" navigatingTo="onNavigatingTo">
+  <ActionBar title="Core Demo" />
+  <StackLayout>
+    <Button text="Open details" tap="onOpenDetails" />
+    <Button text="Filters" tap="onOpenFilters" />
+  </StackLayout>
+</Page>

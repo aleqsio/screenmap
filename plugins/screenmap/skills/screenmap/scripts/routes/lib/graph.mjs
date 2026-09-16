@@ -37,7 +37,9 @@ export function normalize(fragment, ctx, { provider }) {
     // and git worktrees are routinely named after a branch or a ticket.
     appName,
     scheme,
-    deepLinkTemplates: {
+    // Expo Go is a way into any React Native app; a provider for a framework
+    // with no such host supplies its own templates.
+    deepLinkTemplates: provider.deepLinkTemplates?.(scheme) ?? {
       devBuild: scheme ? `${scheme}://<urlPath minus leading slash>` : null,
       expoGo: 'exp://127.0.0.1:8081/--<urlPath>',
     },

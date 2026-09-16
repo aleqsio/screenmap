@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const IMPORT_EXT = ['.tsx', '.ts', '.jsx', '.js']
-const DEFAULT_SKIP = /(^|\/)(node_modules|\.git|\.expo|\.screenmap|ios|android|build|dist)(\/|$)/
+const DEFAULT_SKIP = /(^|\/)(node_modules|\.git|\.expo|\.screenmap|ios|android|build|dist|platforms|App_Resources|hooks|\.ns-vite-build)(\/|$)/
 
 export function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -93,6 +93,7 @@ export function createProjectCtx(projectRoot) {
   }
 
   function resolveToRel(candidate) {
+    candidate = candidate.replace(/\/+$/, '')
     for (const suffix of ['', ...IMPORT_EXT, ...IMPORT_EXT.map((e) => '/index' + e)]) {
       const c = candidate + suffix
       try { if (fs.statSync(path.join(projectRoot, c)).isFile()) return c } catch {}
@@ -139,6 +140,71 @@ export function createProjectCtx(projectRoot) {
     return hit ? path.join(projectRoot, hit) : null
   }
 
+  // nativescript.config.ts (or the legacy nsconfig.json) names the app id and
+  // where the source lives. Read by regex for the same reason app.config.ts is:
+  // it is TypeScript that may compute its values.
+  let _nsConfig
+  function nativescriptConfig() {
+    if (_nsConfig !== undefined) return _nsConfig
+    _nsConfig = null
+    const str = (src, key) => src.match(new RegExp(`\\b${key}\\s*:\\s*["'\`]([^"'\`]+)["'\`]`))?.[1] ?? null
+    for (const f of ['nativescript.config.ts', 'nativescript.config.js', 'nativescript.config.mjs', 'nativescript.config.cjs']) {
+      const src = readFileOrNull(path.join(projectRoot, f))
+      if (!src) continue
+      _nsConfig = {
+        file: f,
+        id: str(src, 'id'),
+        appPath: str(src, 'appPath') ?? 'app',
+        appResourcesPath: str(src, 'appResourcesPath') ?? 'App_Resources',
+      }
+      return _nsConfig
+    }
+    const legacy = readFileOrNull(path.join(projectRoot, 'nsconfig.json'))
+    if (legacy) {
+      let cfg = {}
+      try { cfg = JSON.parse(legacy) } catch {}
+      _nsConfig = {
+        file: 'nsconfig.json',
+        id: packageJson().nativescript?.id ?? null,
+        appPath: cfg.appPath ?? 'app',
+        appResourcesPath: cfg.appResourcesPath ?? 'App_Resources',
+      }
+    }
+    return _nsConfig
+  }
+
+  // A NativeScript app declares its name and URL scheme in the native resource
+  // files, not in a JSON config: Info.plist's CFBundleURLSchemes (often through
+  // an xcconfig variable) and AndroidManifest's VIEW intent filters. Third-party
+  // sign-in SDKs register schemes of their own in the same place, so the app's
+  // own scheme is the one matching the bundle id, else the first that is not a
+  // known SDK's.
+  function nativescriptAppConfig(ns) {
+    const res = path.join(projectRoot, ns.appResourcesPath)
+    const vars = {}
+    for (const m of (readFileOrNull(path.join(res, 'iOS', 'build.xcconfig')) ?? '').matchAll(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*([^;\n]*?)\s*;?\s*$/gm)) vars[m[1]] = m[2]
+    const subst = (s) => s.replace(/\$[({]?([A-Z_][A-Z0-9_]*)[)}]?/g, (m, k) => vars[k] ?? (/BUNDLE_IDENTIFIER$/.test(k) ? ns.id : null) ?? m)
+    const SDK_SCHEME = /^(com\.googleusercontent\.apps\.|fb\d|msauth|twitterkit|db-)/
+    const plist = readFileOrNull(path.join(res, 'iOS', 'Info.plist')) ?? ''
+    const plistValue = (key) => {
+      const v = plist.match(new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`))?.[1]
+      return v && !v.includes('$') ? v : null
+    }
+    const schemes = []
+    for (const m of plist.matchAll(/<key>CFBundleURLSchemes<\/key>\s*<array>([\s\S]*?)<\/array>/g))
+      for (const s of m[1].matchAll(/<string>([^<]+)<\/string>/g)) schemes.push(subst(s[1].trim()))
+    const manifest = readFileOrNull(path.join(res, 'Android', 'src', 'main', 'AndroidManifest.xml')) ?? ''
+    for (const m of manifest.matchAll(/android:scheme="([^"]+)"/g))
+      if (!/^https?$/.test(m[1])) schemes.push(subst(m[1]))
+    const own = schemes.filter((s) => !s.includes('$') && !SDK_SCHEME.test(s))
+    const scheme = own.find((s) => s === ns.id) ?? own[0] ?? null
+    const name =
+      vars.BUNDLE_DISPLAY_NAME ?? plistValue('CFBundleDisplayName') ?? plistValue('CFBundleName') ??
+      (readFileOrNull(path.join(res, 'Android', 'src', 'main', 'res', 'values', 'strings.xml')) ?? '')
+        .match(/<string name="app_name">([^<]+)<\/string>/)?.[1] ?? null
+    return { name, scheme, slug: ns.id }
+  }
+
   // app.json first, then the dynamic configs. The dynamic path is a regex over
   // source — app.config.ts can compute its values, and running it would mean
   // executing project code inside the parser.
@@ -167,6 +233,13 @@ export function createProjectCtx(projectRoot) {
         if (name && scheme) break
       }
     }
+    const ns = !name || !scheme ? nativescriptConfig() : null
+    if (ns) {
+      const n = nativescriptAppConfig(ns)
+      name ??= n.name
+      scheme ??= n.scheme
+      slug ??= n.slug
+    }
     _appConfig = { name: name ?? path.basename(projectRoot), scheme, slug }
     return _appConfig
   }
@@ -185,7 +258,7 @@ export function createProjectCtx(projectRoot) {
 
   return {
     projectRoot, rel, exists, walk, readFileOrNull, resolveToRel, resolveImport,
-    firstPartyImports, pathAliases, appConfig, packageJson, deps,
+    firstPartyImports, pathAliases, appConfig, nativescriptConfig, packageJson, deps,
     routeMatcher, escapeRe,
   }
 }
