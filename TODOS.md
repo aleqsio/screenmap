@@ -31,8 +31,20 @@ Verified:
 - **The iOS deterministic lane, no Metro.** `screenmap-ci baseline` installed
   each `ns build ios` output from `platforms/ios/build`, launched it, and
   captured: all 20 linked HeyKiddo routes by deep link (logged in, zero
-  failures), and the root of ns-octane, ns-vue and ns-angular by launching the
-  app, since none of the three registers a URL scheme.
+  failures), and the root of ns-octane, ns-vue, ns-angular and ns-solid by
+  launching the app, since none of the four registers a URL scheme.
+- **Flow replay and landing verification.** 22 hand-recorded argent flows
+  (tab taps, the featured album, the now-playing sheet, the visualizer,
+  Octane's drawer and settings sheet) replayed through `argent flow run` with
+  every landmark check passing, so every screen of the four scheme-less apps
+  is a real capture: Octane 3 shots including the drawer state, Vue 9 of 9,
+  Angular 6 of 6, Solid 8 of 8. A flow that starts with `launch:` restarts
+  the app, which is what replaces `open-url` when there is no scheme.
+- **Solid at runtime, from a release build.** ns-solid's debug build halts on
+  launch with Solid's `[REACTIVITY_HALTED] … PRIMITIVE_IN_FORBIDDEN_SCOPE`
+  thrown from `solid-navigation`'s stack item (a dev-only assertion), so it
+  renders black; `ns build ios --release` renders and replays fine. The build
+  finder now takes the newest build, so the release one is picked up.
 - **`ns debug` output is refused, by name.** Under `@nativescript/vite`, `ns
   debug` / `ns run` write a stub bundle whose `@nativescript/core` imports are
   `http://<host>:5173/ns/core…` URLs; headless it dies on the first import
@@ -43,23 +55,19 @@ Verified:
 
 Still unverified:
 
-- **Solid at runtime.** ns-solid parses fine, but a plain `ns build ios` of it
-  halts on launch with Solid's `[REACTIVITY_HALTED] … PRIMITIVE_IN_FORBIDDEN_SCOPE`
-  thrown from `solid-navigation`'s stack item, so the capture is a black
-  screen. The app only runs under the HMR session it was written against;
-  that is the app's problem to solve before the lane can be checked on it.
 - **Android runtime.** `findBuiltApp` knows `platforms/android/app/build/outputs/apk`,
   the session skips `adb reverse` and the dev-menu muting, and the stub guard
   reads `assets/app/bundle.mjs` out of the APK, but no NativeScript APK has
   been run through the lane. A `com.heykiddo.talk` debug APK and three AVDs
   exist on the dev machine.
 - **The agent lane.** The prompt says "bundled JS, no Metro" (and "no URL
-  scheme" where that holds), but no agent has explored a NativeScript app.
-  HeyKiddo's 34 navigation-only screens and every non-root screen of the
-  scheme-less apps are the natural test.
-- **Flow replay and PR diffs.** Nothing changes in the code path, but a
-  NativeScript PR that touches native code needs `ns build` per side rather
-  than a Metro restart, and no diff has been run end to end.
+  scheme" where that holds), but no agent has explored a NativeScript app
+  unattended; the 22 flows above were recorded by hand from argent
+  `describe` output. HeyKiddo's 34 navigation-only screens are the natural
+  test.
+- **PR diffs.** Nothing changes in the code path, but a NativeScript PR that
+  touches native code needs `ns build` per side rather than a Metro restart,
+  and no diff has been run end to end.
 - **Core, React and Svelte on real apps.** Fixtures only. React NativeScript
   is root-only until its navigation idioms are pinned down.
 - **Deep-link inference.** `routes.links` is hand-written. HeyKiddo's table is
