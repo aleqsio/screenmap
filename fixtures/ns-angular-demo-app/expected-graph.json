@@ -1,0 +1,216 @@
+{
+  "appName": "NS Demo",
+  "scheme": "org.screenmap.nsdemo",
+  "deepLinkTemplates": {
+    "devBuild": "org.screenmap.nsdemo://<urlPath minus leading slash>"
+  },
+  "mode": "nativescript",
+  "flavor": "angular",
+  "appPath": "src",
+  "routesFile": "src/app/app.routes.ts",
+  "screensResolved": 7,
+  "layouts": [
+    {
+      "file": "src/app/app.routes.ts",
+      "dir": "",
+      "navigator": "Stack"
+    },
+    {
+      "file": "src/app/home/home.component.ts",
+      "dir": "home",
+      "navigator": "Tabs"
+    }
+  ],
+  "routes": [
+    {
+      "id": "login",
+      "file": "src/app/login/login.component.ts",
+      "urlPath": null,
+      "title": "/login",
+      "reach": "navigation-only",
+      "slug": "login",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": null,
+      "stateHints": []
+    },
+    {
+      "id": "home/feed",
+      "file": "src/app/home/feed/feed.component.ts",
+      "urlPath": "/feed",
+      "title": "/home/(feedTab:feed)",
+      "reach": "deep-link",
+      "slug": "home_feed",
+      "params": [],
+      "navigator": "Tabs",
+      "layoutDir": "home",
+      "presentation": null,
+      "stateHints": []
+    },
+    {
+      "id": "home/search",
+      "file": "src/app/home/search/search.component.ts",
+      "urlPath": null,
+      "title": "/home/(searchTab:search)",
+      "reach": "navigation-only",
+      "slug": "home_search",
+      "params": [],
+      "navigator": "Tabs",
+      "layoutDir": "home",
+      "presentation": null,
+      "stateHints": [
+        {
+          "type": "bottom-sheet",
+          "lib": "material-bottomsheet",
+          "snapPoints": null,
+          "component": "FiltersSheetComponent"
+        }
+      ]
+    },
+    {
+      "id": "details/:id",
+      "file": "src/app/details/details.component.ts",
+      "urlPath": "/item/:id",
+      "title": "/details/:id",
+      "reach": "deep-link",
+      "slug": "details_id",
+      "params": [
+        "id"
+      ],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": null,
+      "stateHints": [
+        {
+          "type": "ns-modal",
+          "component": "ShareDialogComponent"
+        }
+      ]
+    },
+    {
+      "id": "settings",
+      "file": "src/app/settings/settings.component.ts",
+      "urlPath": "/settings",
+      "title": "/settings",
+      "reach": "deep-link",
+      "slug": "settings",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": null,
+      "stateHints": []
+    },
+    {
+      "id": "compose",
+      "file": "src/app/compose/compose.component.ts",
+      "urlPath": null,
+      "title": "/compose",
+      "reach": "navigation-only",
+      "slug": "compose",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": null,
+      "stateHints": []
+    },
+    {
+      "id": "**",
+      "file": "src/app/not-found/not-found.component.ts",
+      "urlPath": null,
+      "title": "/**",
+      "reach": "navigation-only",
+      "slug": "wildcard",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": null,
+      "stateHints": []
+    }
+  ],
+  "edges": [
+    {
+      "from": "login",
+      "to": "home/feed",
+      "raw": "['/home', { outlets: { feedTab: ['feed'] } }]",
+      "target": "/home/feed"
+    },
+    {
+      "from": "home/feed",
+      "to": "settings",
+      "raw": "'/settings'",
+      "target": "/settings"
+    },
+    {
+      "from": "home/feed",
+      "to": "compose",
+      "raw": "['/compose']",
+      "target": "/compose"
+    },
+    {
+      "from": "home/feed",
+      "to": "details/:id",
+      "raw": "['/details', item.id]",
+      "target": "/details/:id"
+    },
+    {
+      "from": "home/search",
+      "to": "details/:id",
+      "raw": "['/details', id]",
+      "target": "/details/:id"
+    },
+    {
+      "from": "details/:id",
+      "to": "details/:id",
+      "raw": "[`/details/${this.id + 1}`]",
+      "target": "/details/:id"
+    },
+    {
+      "from": "details/:id",
+      "to": "settings",
+      "raw": "['settings']",
+      "target": "/settings"
+    },
+    {
+      "from": "settings",
+      "to": "settings",
+      "raw": "['/account']",
+      "target": "/settings"
+    },
+    {
+      "from": "settings",
+      "to": "login",
+      "raw": "'/login'",
+      "target": "/login"
+    },
+    {
+      "from": "settings",
+      "to": "home/search",
+      "raw": "['/home', { outlets: { searchTab: ['search'] } }]",
+      "target": "/home/search"
+    },
+    {
+      "from": "compose",
+      "to": "home/feed",
+      "raw": "['/home']",
+      "target": "/home/feed"
+    },
+    {
+      "from": "**",
+      "to": "home/feed",
+      "raw": "/home",
+      "target": "/home/feed"
+    }
+  ],
+  "summary": {
+    "mode": "nativescript",
+    "routes": 7,
+    "layouts": 2,
+    "edges": 12,
+    "unresolvedEdges": 0,
+    "routesWithStateHints": 2,
+    "routesNeedingParams": 1,
+    "navigationOnlyRoutes": 4,
+    "orphanRoutes": 1
+  }
+}

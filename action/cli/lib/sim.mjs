@@ -77,17 +77,23 @@ export function freezeStatusBar(udid) {
     '--wifiBars', '3', '--cellularMode', 'active', '--cellularBars', '4', '--batteryState', 'charged', '--batteryLevel', '100'])
 }
 
+// Expo's `run:ios` output and NativeScript's `ns build ios`; a project only
+// ever has one of the two trees.
 export function findBuiltApp(projectDir) {
   const dirs = [
     path.join(projectDir, 'ios', 'build', 'Build', 'Products', 'Debug-iphonesimulator'),
     path.join(projectDir, 'ios', 'build', 'Build', 'Products', 'Release-iphonesimulator'),
+    path.join(projectDir, 'platforms', 'ios', 'build', 'Debug-iphonesimulator'),
+    path.join(projectDir, 'platforms', 'ios', 'build', 'Release-iphonesimulator'),
   ]
-  for (const d of dirs) {
-    if (!fs.existsSync(d)) continue
-    const app = fs.readdirSync(d).find((f) => f.endsWith('.app'))
-    if (app) return path.join(d, app)
-  }
-  return null
+  return newestOf(dirs.flatMap((d) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith('.app')).map((f) => path.join(d, f)) : [])))
+}
+
+// The build most recently written, wherever it sits: a project can hold a
+// Debug and a Release build of the same app, and the one just built is the
+// one meant.
+function newestOf(paths) {
+  return paths.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0] ?? null
 }
 
 export function appIdOf(appPath) {

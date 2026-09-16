@@ -1,0 +1,46 @@
+{
+  "appName": "React Demo",
+  "scheme": null,
+  "deepLinkTemplates": {
+    "devBuild": null
+  },
+  "mode": "nativescript",
+  "flavor": "react",
+  "appPath": "src",
+  "entryFile": "src/app.ts",
+  "screensResolved": 1,
+  "layouts": [
+    {
+      "file": "src/app.ts",
+      "dir": "",
+      "navigator": "Stack"
+    }
+  ],
+  "routes": [
+    {
+      "id": "AppContainer",
+      "file": "src/components/AppContainer.tsx",
+      "urlPath": "/",
+      "title": "AppContainer",
+      "reach": "deep-link",
+      "slug": "AppContainer",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": null,
+      "stateHints": []
+    }
+  ],
+  "edges": [],
+  "summary": {
+    "mode": "nativescript",
+    "routes": 1,
+    "layouts": 1,
+    "edges": 0,
+    "unresolvedEdges": 0,
+    "routesWithStateHints": 0,
+    "routesNeedingParams": 0,
+    "navigationOnlyRoutes": 0,
+    "orphanRoutes": 0
+  }
+}

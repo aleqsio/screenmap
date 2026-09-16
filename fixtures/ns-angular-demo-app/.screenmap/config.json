@@ -1,0 +1,10 @@
+{
+  "routes": {
+    "links": {
+      "home/feed": "feed",
+      "details/:id": "item/:id",
+      "settings": true,
+      "login": false
+    }
+  }
+}

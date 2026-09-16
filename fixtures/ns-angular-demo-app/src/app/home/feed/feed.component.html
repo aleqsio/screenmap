@@ -1,0 +1,8 @@
+<GridLayout rows="auto, *">
+  <Button row="0" text="Settings" (tap)="openSettings()"></Button>
+  <ListView row="1" [items]="items">
+    <ng-template let-item="item">
+      <ns-feed-item [item]="item"></ns-feed-item>
+    </ng-template>
+  </ListView>
+</GridLayout>

@@ -1,6 +1,6 @@
 # screenmap
 
-screenmap shows you every screen in an Expo / React Native app, and shows your reviewers exactly which screens a pull request changed, without anyone writing a test.
+screenmap shows you every screen in an Expo / React Native or NativeScript app, and shows your reviewers exactly which screens a pull request changed, without anyone writing a test.
 
 Web pull requests get a preview URL. Mobile pull requests get a QR code, a build to install, and a screen to find on your own, so most reviewers skip the visual half of the change. screenmap closes that gap: it runs the app in CI, screenshots the screens your diff can reach, and posts them into the review.
 
@@ -59,7 +59,7 @@ PR opened ──▶ restore baseline (screenmaps branch) ──▶ static parse 
 
 You need all four of these:
 
-- An Expo or React Native app using expo-router or a react-navigation route map, with `expo-dev-client` installed and deep-linkable routes.
+- An Expo or React Native app using expo-router or a react-navigation route map, with `expo-dev-client` installed and deep-linkable routes. Or a NativeScript app (Angular Router, or Core XML pages): no dev client and no EAS lane, so you pass a prebuilt `.app` / `.apk` as `app_path` and name the routes your URL handler opens under `routes.links` — see [NativeScript apps](#nativescript-apps).
 - An EAS build profile that produces a simulator build (iOS) or an APK (Android — set `"android": { "buildType": "apk" }`, since an `.aab` cannot be installed on an emulator), or a build of your own.
 - A GitHub repo you can add secrets to.
 - Runner minutes. iOS needs macOS, which bills at ten times the Linux rate; Android runs on `ubuntu-latest`. A JavaScript-only pull request takes about 12 minutes end to end.
@@ -130,7 +130,10 @@ You need all four of these:
    | `android.appId` | read from the APK with `aapt2` | Package name. Also accepted as `android.packageName` |
    | `appName` | the project directory name | Name recorded in the bundle |
    | `device`, `bundleId`, `appPath` | — | Pre-multi-platform spellings of the `ios.*` keys above; still honoured |
-   | `metroPort` | `8081` | Port Metro starts on |
+   | `metroPort` | `8081` | Port Metro starts on (Expo only) |
+   | `runtime` | detected | `expo` or `nativescript`. Detected from `nativescript.config.*`; a NativeScript session launches the installed app instead of steering a dev client onto Metro |
+   | `routes.provider` | `auto` | Pin the route provider (`expo-router`, `react-navigation`, `nativescript`, `custom`) when detection is wrong. See [docs/route-providers.md](docs/route-providers.md) |
+   | `routes.links` | `{}` | NativeScript only: which routes a deep link opens, route id → path after the scheme (`true` for the route's own URL, `"*"` as the default). Without it every screen is reached by tapping |
    | `params` | `{}` | Real values for route parameters, see below |
    | `suspects.depth` | from `effort` | Import hops followed out from a changed file |
    | `suspects.broadCap` | `8` | Cap on screens marked by a change to a widely imported file |
@@ -174,7 +177,7 @@ In a monorepo, point the Action at the app with `project: apps/mobile`. On a pri
 | Input | Default | What it does |
 | --- | --- | --- |
 | `mode` | required | `pr` or `baseline` |
-| `project` | `.` | Path to the Expo project, relative to the repo root |
+| `project` | `.` | Path to the app project (Expo or NativeScript), relative to the repo root |
 | `agent_provider` | `claude` | `claude`, `codex`, `gemini` or `opencode`. See [AI providers](#ai-providers) |
 | `agent_api_key` | empty | Key for the chosen provider. Leave empty for deterministic-only runs |
 | `effort` | `balanced` | `fast`, `balanced` or `thorough` — tokens and wall-clock against accuracy. See [Install](#install) step 3 |
@@ -185,7 +188,7 @@ In a monorepo, point the Action at the app with `project: apps/mobile`. On a pri
 | `publish` | `"true"` | Publish bundles to the `screenmaps` branch so the comment can deep-link the viewer. Needs `contents: write` |
 | `viewer_url` | `https://app.screenmap.dev` | Viewer origin used in comment links |
 | `simulator` | `iPhone 17 Pro` | Device to boot, falling back to any available iPhone |
-| `app_path` | empty | A prebuilt simulator `.app`. When set, EAS is skipped |
+| `app_path` | empty | A prebuilt simulator `.app` (or `.apk`). When set, EAS is skipped. The only option for a NativeScript app |
 | `expo_token` | empty | `EXPO_TOKEN` for the EAS lane. Required unless `app_path` is set |
 | `eas_profile` | `development-simulator` | The `eas.json` profile used for the dev client |
 | `flows_pr` | `"true"` | Baseline runs open a PR with the flows the agent recorded |
@@ -273,7 +276,7 @@ claude plugin marketplace add aleqsio/screenmap
 claude plugin install screenmap@screenmap
 ```
 
-Then, in any Expo or React Native project, run one of these in Claude Code:
+Then, in any Expo, React Native or NativeScript project, run one of these in Claude Code:
 
 ```
 /screenmap            # full run: parse + simulator exploration + pack
@@ -289,6 +292,22 @@ What you get:
 - **The path to every screen, saved.** Each screen carries the exact tap sequence that reaches it, ready to replay headlessly. Commit those flows and CI replays them instead of paying an agent to rediscover them.
 
 Output lands in `<project>/.screenmap/out/`, so add that to your `.gitignore`. You need a macOS host with the iOS simulator, or an Android emulator (`--platform android`); `--platform both` captures each screen on both and puts them in one map behind a platform switcher.
+
+## NativeScript apps
+
+The same pipeline reads a [NativeScript](https://nativescript.org) app, with three differences that follow from how NativeScript apps are built.
+
+- **Routes come from whichever framework drives the views.** For Angular, the `nativescript` provider follows `provideNativeScriptRouter(routes)` (or `NativeScriptRouterModule.forRoot`) into every `loadChildren` module, reads named outlets, `redirectTo` aliases, enum-valued paths and barrel re-exports, and takes edges from `navigate([...])`, `navigateByUrl()` and `nsRouterLink`. A route with `children` is a layout, read as tabs when its children sit in several named outlets. Modals and material bottom sheets opened from a screen become state hints naming the component. Core apps (no framework) are read from their `<Page>` XML files and `Frame.navigate({ moduleName })` calls. For Octane, React NativeScript, Vue, Svelte and Solid, a screen is a component the framework mounts as a root (`renderNativeScriptApp`, `ReactNativeScript.start`, `createApp`, `svelteNative`, `startSolidApp`), pushes (`$navigateTo`, `navigate({ page })`, a `solid-navigation` `navigate('Name')` against its `<Route>` table), presents (`$showModal`, `showModal({ page })`, a second root rendered into a view handed to `showModal`) or hosts in a `<frame>` tab; the entry's mount is the app root, a `<Route>` table's `initialRouteName` is the root behind a router shell, and a `<drawer>` or a native `menu=` prop becomes a state hint.
+- **Deep links are declared, not inferred.** The app registers its URL scheme in `App_Resources` (read automatically, `${BUNDLE_IDENTIFIER}`-style variables included), but which screen a link opens is the app's own code. So every route starts navigation-only, and `.screenmap/config.json` says which ones a link reaches:
+
+  ```json
+  { "routes": { "links": { "talk/today": "today", "chatbot/chat": "ask-mae", "settings": true, "*": false } } }
+  ```
+
+  Keys are route ids, values the path after the scheme, `true` for the route's own URL, `"*"` as the default. Everything not listed goes to the agent lane to be reached by tapping. An app that registers no URL scheme at all still maps: the root screen is captured by launching the app, and the rest through committed flows or the agent.
+- **There is no Metro and no dev client.** The JS bundle ships inside the app, so a session installs and launches the build and that is the whole boot. Locally, `ns build ios` puts the simulator app under `platforms/ios/build/Debug-iphonesimulator/` and `ns build android` the APK under `platforms/android/app/build/outputs/apk/debug/`; both the plugin and `screenmap-ci` find them there. It has to be `ns build`: under `@nativescript/vite`, `ns debug` and `ns run` produce a stub that imports every module from the Vite dev server, which is not there in a headless run, and `screenmap-ci` refuses such a build by name rather than capturing the home screen. Debug and release builds can sit side by side; the newest one is used. In CI the Action never builds, so a build step produces the `.app` or `.apk` and passes it as `app_path`; the EAS lane and `expo_token` do not apply.
+
+Angular, Octane, Vue and Solid are validated against real apps (a 54-screen NativeScript Angular app with lazy route modules and named-outlet tabs, an Octane chat app with a drawer and a native settings sheet, and three Apple Music clones in Angular, Vue and Solid with tab-hosted screens and shared-transition modals); Core, React and Svelte against fixtures. Flow replay, PR diffs and the agent lane run unchanged, with one caveat: a PR that changes native code needs a rebuild per side, since there is no Metro to restart.
 
 ## The map viewer
 
@@ -326,7 +345,7 @@ Drop a `.scrmap` bundle on the landing page. The demo bundle ships in `public/de
                           + nav/interaction flows        screens/*.png)        tap overlays
 ```
 
-1. **Static parse** (no dependencies). Reads expo-router file conventions and react-navigation route maps (the kind Bluesky keeps in `src/routes.ts`), so the screen list is complete rather than whatever a crawler happened to find. It produces the route list, navigation edges from `Link` and `navigate()` calls, and state hints saying which screens use a bottom-sheet or dialog system.
+1. **Static parse** (no dependencies). Reads expo-router file conventions, react-navigation route maps (the kind Bluesky keeps in `src/routes.ts`), and NativeScript apps — Angular Router `Routes` arrays or Core XML pages — so the screen list is complete rather than whatever a crawler happened to find. It produces the route list, navigation edges from `Link`, `navigate()` and `nsRouterLink` calls, and state hints saying which screens use a bottom-sheet or dialog system.
 2. **Agent exploration** in the iOS simulator or Android emulator. A deep-link sweep captures every screen and classifies each capture (real, empty state, not found, error boundary, auth wall). For the screens a deep link cannot reach, an agent drives the app and records the tap path as an [argent](https://argent.swmansion.com) flow in YAML, replayable later with `argent flow run`. Runtime states get captured too: open drawers, bottom-sheet snap points, dialogs. If a sticky error boundary blocks the app, the agent recovers and carries on.
 3. **Pack.** Everything merges into a producer-agnostic `.scrmap` zip. The format contract is in [docs/scrmap-format.md](docs/scrmap-format.md), which is what you need if you want to write your own producer.
 4. **Visualise.** The viewer draws a top-down graph with the root screen at the top-center and phone-framed screenshots. Load a second bundle, a `.diff.scrmap`, and it overlays what a pull request changed.
@@ -337,13 +356,13 @@ The expensive part is step 2, and you only pay it once. Recorded flows get commi
 
 - `plugins/screenmap/skills/screenmap/SKILL.md` is the agent orchestration: phases, safety rails, and the flow-recording contract.
 - `plugins/screenmap/skills/screenmap/scripts/` holds `parse-routes.mjs`, `pack-map.mjs`, `diff-map.mjs` (PR diff: suspects and pack) and `render-map.mjs` (static HTML fallback). All plain Node, no dependencies.
-- `plugins/screenmap/skills/screenmap/scripts/routes/` is the route-provider layer: `parse-routes.mjs` only drives it, and each framework (expo-router, react-navigation, or a command you supply) is one module under `providers/`. See [docs/route-providers.md](docs/route-providers.md) to add one.
+- `plugins/screenmap/skills/screenmap/scripts/routes/` is the route-provider layer: `parse-routes.mjs` only drives it, and each framework (expo-router, react-navigation, nativescript, or a command you supply) is one module under `providers/`. See [docs/route-providers.md](docs/route-providers.md) to add one.
 - `apps/visualiser/` is the Map / Changes viewer, built with Vite, React, Tailwind v4, shadcn/ui, React Flow and elkjs, plus pixelmatch and OpenCV.js for the visual diff.
 - `action.yml` is the composite GitHub Action. The metadata sits at the repo root so the repo is publishable to the Marketplace. Its `screenmap-ci` CLI lives in `action/cli`, and the workflow and `.scrmap` templates live in `action/templates`.
 - [`docs/scrmap-format.md`](docs/scrmap-format.md) is the versioned bundle format contract, for writing your own producer.
 - [`docs/diff-scrmap-format.md`](docs/diff-scrmap-format.md) is the format of the PR diff bundle behind the Changes view.
 - [`docs/ci.md`](docs/ci.md) is a stub pointing at the CI section above, which is where that guide lives now.
-- `fixtures/demo-app/` is a minimal expo-router app that exercises the parser.
+- `fixtures/demo-app/` is a minimal expo-router app that exercises the parser; `fixtures/rn-demo-app/`, `fixtures/ns-angular-demo-app/` and `fixtures/ns-core-demo-app/` do the same for the other providers, and `fixtures/run-tests.mjs` pins every graph.
 
 ## Known limits
 
@@ -351,7 +370,7 @@ The expensive part is step 2, and you only pay it once. Recorded flows get commi
 - **Android's dev-menu muting is best-effort.** iOS writes the preference through `simctl spawn defaults`; Android has to reach the app's SharedPreferences through `run-as`, which only works for a debuggable build. When it fails, the dev-menu floating button stays in the captures — cosmetic, and the run continues.
 - **OCR on Linux is tesseract, not Vision.** The landing checks, deep-link verification and system-alert dismissal all read the screen, and tesseract recovers noticeably fewer words than Apple Vision. Screen-to-screen comparisons hold up (same-text scores are unchanged; different-screen scores only move further apart), but a landmark check is likelier to miss, so a drift warning from a Linux run is less certain than one from macOS. The run summary and the PR comment name the backend when it is not Vision.
 - **Flows are per platform.** Coordinates are normalized, but layouts and system chrome are not, so a flow recorded on iOS is not guaranteed to replay on Android. Record and commit them per platform.
-- **Your app needs a router screenmap can read.** expo-router file conventions or a react-navigation route map. Screens registered without URLs are invisible to the static parse, and only show up through agent exploration.
+- **Your app needs a router screenmap can read.** expo-router file conventions, a react-navigation route map, or a NativeScript Angular Router / Core page tree. Screens registered without URLs are invisible to the static parse, and only show up through agent exploration. A NativeScript app's deep links are whatever its own URL handler does, so its screens are navigation-only until `routes.links` names them; Octane, React, Vue and Svelte apps are read from their mount, push and modal calls, so a screen wired any other way is invisible until an agent finds it.
 - **Edge extraction is regex-based**, so dynamic hrefs resolve to their route pattern.
 - **It reports, it does not gate.** There is no pass/fail check, by design. A reviewer decides what the screenshots mean.
 

@@ -15,6 +15,7 @@ plugins/screenmap/skills/screenmap/scripts/
     providers/
       expo-router.mjs
       react-navigation.mjs
+      nativescript.mjs
       custom.mjs
 ```
 
@@ -24,6 +25,7 @@ Shipped providers:
 |---|---|---|
 | `expo-router` | the `app/` route tree | `deep-link` — the file path *is* the URL |
 | `react-navigation` | `<X.Screen>` registrations + the linking config | `mixed` — a screen has a URL only if the linking config gives it one |
+| `nativescript` | Angular Router `Routes` arrays; Core XML pages + `Frame.navigate()`; or, for Octane, React, Vue, Svelte and Solid, the components the framework mounts, pushes, presents, hosts in `<frame>` tabs or registers in a route table | `mixed` — a screen has a URL only if `routes.links` in `.screenmap/config.json` gives it one |
 | `custom` | a command you supply | `unknown` |
 
 ## Choosing a provider
@@ -41,6 +43,7 @@ node scripts/parse-routes.mjs . --list-providers
 ```
 0.95  expo-router        app/ contains a _layout route; expo-router in package.json
 0.00  react-navigation   expo-router also present — deferring to it
+0.00  nativescript       no nativescript.config.* and no @nativescript/core dependency
 0.00  custom             opt-in only: set routes.provider = "custom"
 ```
 
@@ -108,6 +111,84 @@ and filing the home screen under the route's name, seeds
 `capture.needsNavigation` in the bundle, and puts the screen on the agent's
 work queue to be reached by tapping.
 
+### NativeScript: deep links come from the project
+
+Angular Router gives every screen a URL *inside* the app
+(`/talk/(todayTab:today)`), but nothing says which of those a
+`myapp://…` link opens: a NativeScript app registers its scheme in
+`App_Resources` and maps URLs onto navigation in its own code. So the
+`nativescript` provider starts every route navigation-only and reads the map
+from `.screenmap/config.json`:
+
+```jsonc
+{
+  "routes": {
+    "links": {
+      "talk/today": "today",          // myapp://today opens this route
+      "chatbot/chat": "ask-mae/:id",  // params in the link join the route's own
+      "settings": true,               // the route's own URL is the deep link
+      "*": false                      // default for routes not listed (false = navigation-only)
+    }
+  }
+}
+```
+
+Keys are route ids (the Angular path without the leading slash; the title
+with outlet notation also works). `"*": true` says the app's handler mirrors
+the router, so every route deep-links by its own URL. The app id, scheme and
+name come from `nativescript.config.ts`, `App_Resources/iOS/Info.plist`
+(resolving `${BUNDLE_IDENTIFIER}`-style xcconfig variables) and
+`AndroidManifest.xml`; `ctx.appConfig()` does that reading, so a provider for
+another NativeScript flavour gets it for free.
+
+The Angular flavour follows `loadChildren` into lazy route files, named
+outlets, `redirectTo` aliases, enum-valued paths and barrel re-exports; a
+route with `children` becomes a layout (`Tabs` when its children sit in two or
+more named outlets, else `Stack`), and links aimed at it resolve to the child
+the router would land on. Edges come from `navigate([...])`,
+`navigateByUrl('…')` and `nsRouterLink`, with `relativeTo` honoured. Modals and
+material bottom sheets opened from a screen become `ns-modal` and
+`bottom-sheet` state hints carrying the component name. The Core flavour reads
+`<Page>` XML files as routes and `navigate({ moduleName })` / `showModal()`
+calls as edges and hints.
+
+The component flavours (Octane, React NativeScript, Vue, Svelte) have no route
+table at all, so a screen is a component the framework **mounts** as a root,
+**pushes**, or **presents** as a modal, and each flavour is one row of
+spellings for those three calls:
+
+| flavour | mount | push | modal |
+|---|---|---|---|
+| `octane` | `renderNativeScriptApp(view, X)` | — | a second root rendered into a view the same module `showModal`s |
+| `react` | `ReactNativeScript.start(React.createElement(X))` / `start(<X/>)` | — | — |
+| `vue` | `createApp(X)`, `render: h => h(X)` | `$navigateTo(X)` | `$showModal(X)` |
+| `svelte` | `svelteNative(X)` / `svelteNativeNoFrame(X)` | `navigate({ page: X })` | `showModal({ page: X })` |
+| `solid` | `startSolidApp({ root: X })`, `render(() => <X/>, view)` | `<Route name="N" component={X}/>` + `navigate('N')` (solid-navigation) | a `render` into a view the same module `showModal`s |
+
+Two rules apply to every flavour on top of the table. A component that is the
+sole child of a `<frame>` is a screen hosted by the component around it
+(`layoutDir` is the host, `navigator` is `Tabs` when the host is a tab view),
+which is how the tab bars in Vue and Solid apps come out. And a mounted root
+whose file declares a route table is the router shell: a layout, not a screen,
+with its `initialRouteName` as the app root.
+
+The mount in the entry module (`package.json` `main`) is the app root and gets
+`urlPath: "/"`; every other component is navigation-only until `routes.links`
+says otherwise. In the Angular flavour the same `/` goes to whatever the empty
+path resolves to (a `''` container's first child, or a redirect's target),
+since that is the screen a launch shows. Edges come from the same calls found in a screen's own file or
+one import hop out, so a helper like Octane's `openSettings(host)` links the
+screen that imports it to the sheet it renders. A `<drawer>` in a screen and
+`menu=` / `contextMenu=` props become `drawer` and `native-menu` state hints.
+Angular, Octane, Vue and Solid are validated against real apps; React and
+Svelte against fixtures only. Other renderers are not recognised yet —
+prototype those as a custom provider.
+
+An app that registers no URL scheme at all (many single-screen apps) parses
+fine: `scheme` is null, `deepLinkTemplates.devBuild` is null, and the CI lane
+captures the root by launching the app and everything else through flows or
+the agent.
+
 ## Writing a provider
 
 Two exported functions and a `meta`:
@@ -136,9 +217,14 @@ export function parse(ctx) {
 | `resolveImport(spec, fromFile)` | one import specifier → absolute path, alias-aware |
 | `firstPartyImports(src, fromRel)` | every first-party import of a file, as repo-relative paths |
 | `pathAliases()` | parsed `tsconfig.json` `compilerOptions.paths` (JSONC-tolerant) |
-| `appConfig()` | `{ name, scheme, slug }` from `app.json` or `app.config.*` |
+| `appConfig()` | `{ name, scheme, slug }` from `app.json` or `app.config.*`, else from `nativescript.config.*` + `App_Resources` |
+| `nativescriptConfig()` | `{ id, appPath, appResourcesPath }` from `nativescript.config.*`, or null |
 | `deps()`, `packageJson()` | |
 | `routeMatcher(urlPath)` | pattern → RegExp, understands `[param]` and `:param` |
+
+A provider may also export `deepLinkTemplates(scheme)` to replace the graph's
+`deepLinkTemplates` block; the default advertises an Expo Go URL, which means
+nothing for a framework Expo Go cannot host.
 
 Register it in `registry.mjs`, add a fixture under `fixtures/`, and add a line
 to `fixtures/run-tests.mjs`.
@@ -173,4 +259,6 @@ node fixtures/run-tests.mjs --update   # accept an intended change
 
 Each fixture pins both the provider detection picks and the entire graph, so a
 change that silently re-routes a project to a different provider, or drops a
-route, fails here rather than in someone's capture run.
+route, fails here rather than in someone's capture run. A fixture may commit a
+`.screenmap/config.json` (the NativeScript Angular one does, for `routes.links`);
+only `.screenmap/out/` is removed after a run.

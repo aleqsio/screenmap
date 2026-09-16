@@ -63,24 +63,83 @@ export async function waitFor(promise, ms, label) {
 // with capture helpers; call session.close() at the end.
 export async function openSession({ projectDir, config, scheme, platform = 'ios' }) {
   const driver = driverFor(platform)
+  const nativescript = config.runtime === 'nativescript'
   const { id, name } = await driver.ensureBooted(config)
   driver.freezeStatusBar(id)
   const appPath = config.appPath ?? driver.findBuiltApp(projectDir)
   if (!appPath) {
-    throw new Error(platform === 'android'
-      ? 'no built dev client found under android/app/build/outputs/apk — build it first (expo run:android --no-bundler) or pass app_path'
-      : 'no built dev client found under ios/build — build it first (expo run:ios --no-bundler)')
+    const where = nativescript
+      ? (platform === 'android' ? 'platforms/android/app/build/outputs/apk — build it first (ns build android)' : 'platforms/ios/build — build it first (ns build ios)')
+      : (platform === 'android' ? 'android/app/build/outputs/apk — build it first (expo run:android --no-bundler)' : 'ios/build — build it first (expo run:ios --no-bundler)')
+    throw new Error(`no built app found under ${where}, or pass app_path`)
   }
   const appId = config.appId ?? driver.appIdOf(appPath)
+  if (nativescript) {
+    const devServer = bundleDevServer(appPath, platform)
+    if (devServer) {
+      throw new Error(
+        `${path.basename(appPath)} is a \`ns debug\` build: its JavaScript loads from the Vite dev server at ${devServer}, ` +
+        `so it only runs while that server is up. Build with \`ns build ${platform}\` and pass that .app/.apk (or leave appPath unset so it is discovered under platforms/).`
+      )
+    }
+  }
   driver.installApp(id, appPath)
   driver.grantPrivacy(id, appId)
-  driver.muteDevMenu(id, appId)
-  driver.approveScheme(id, scheme, appId)
+  if (!nativescript) driver.muteDevMenu(id, appId)
+  if (scheme) driver.approveScheme(id, scheme, appId)
   await sleep(3000) // let the launcher settle (iOS resprings SpringBoard above)
   // resolve the OCR backend now — compiling the Vision helper lazily inside the
   // connect loop starves a small runner while Metro bundles, and simctl openurl
   // then times out
   ocrAvailable()
+  const metro = nativescript ? null : await connectDevClient({ projectDir, config, scheme, platform, driver, id, appId })
+  if (nativescript) {
+    // the bundle ships inside the app, so launching it is the whole boot
+    driver.terminate(id, appId)
+    await sleep(800)
+    driver.launch(id, appId)
+  }
+  await sleep(config.waits.boot)
+  log(`session ready: ${appId} on ${name} (${id})${metro ? `, Metro :${config.metroPort}` : ', bundled JS'}`)
+  let firstVisit = true
+  const session = {
+    platform, driver, id, udid: id, appId, bundleId: appId, scheme, config,
+    deviceName: name ?? config.device,
+    screenshot(outPath) { return driver.screenshot(id, outPath) },
+    async visit(url, outPath, waitMs) {
+      try { driver.openUrl(id, url, appId) } catch { await sleep(2000); driver.openUrl(id, url, appId) } // one retry for transient timeouts
+      await sleep(waitMs ?? config.waits.transition)
+      // dev builds often show a one-off toast right after the bundle loads;
+      // give the very first capture extra time to settle
+      if (firstVisit) { await sleep(config.waits.settle ?? 6000); firstVisit = false }
+      driver.screenshot(id, outPath)
+      return outPath
+    },
+    async relaunch() {
+      driver.terminate(id, appId); await sleep(800); driver.launch(id, appId); await sleep(4000)
+      firstVisit = true // dev builds re-show their load-time toast after a relaunch
+    },
+    close() { metro?.stop() },
+  }
+  return session
+}
+
+// A NativeScript Vite dev build ships a stub bundle that imports every module
+// over HTTP from the dev server; headless, it dies on the first import with
+// the home screen as its only capture. Returns that server's origin, or null
+// for a self-contained bundle.
+function bundleDevServer(appPath, platform) {
+  let src = null
+  try {
+    if (platform === 'android') src = sh('unzip', ['-p', appPath, 'assets/app/bundle.mjs'], { maxBuffer: 256 * 1024 * 1024 })
+    else src = fs.readFileSync(path.join(appPath, 'app', 'bundle.mjs'), 'utf8')
+  } catch { return null }
+  return src.match(/https?:\/\/[\w.-]+:\d+(?=\/ns\/)/)?.[0] ?? null
+}
+
+// Start Metro and steer the dev client onto it; resolves with the Metro
+// handle once the first bundle has been served.
+async function connectDevClient({ projectDir, config, scheme, platform, driver, id, appId }) {
   const metro = startMetro(projectDir, config.metroPort)
   await waitFor(metro.ready, 120000, 'Metro to start')
   // the emulator's localhost is not the host's — open the tunnel before the
@@ -126,27 +185,5 @@ export async function openSession({ projectDir, config, scheme, platform = 'ios'
     metro.stop()
     throw new Error(`timed out waiting for first JS bundle (${platform})`)
   }
-  await sleep(config.waits.boot)
-  log(`session ready: ${appId} on ${name} (${id}), Metro :${config.metroPort}`)
-  let firstVisit = true
-  const session = {
-    platform, driver, id, udid: id, appId, bundleId: appId, scheme, config,
-    deviceName: name ?? config.device,
-    screenshot(outPath) { return driver.screenshot(id, outPath) },
-    async visit(url, outPath, waitMs) {
-      try { driver.openUrl(id, url, appId) } catch { await sleep(2000); driver.openUrl(id, url, appId) } // one retry for transient timeouts
-      await sleep(waitMs ?? config.waits.transition)
-      // dev builds often show a one-off toast right after the bundle loads;
-      // give the very first capture extra time to settle
-      if (firstVisit) { await sleep(config.waits.settle ?? 6000); firstVisit = false }
-      driver.screenshot(id, outPath)
-      return outPath
-    },
-    async relaunch() {
-      driver.terminate(id, appId); await sleep(800); driver.launch(id, appId); await sleep(4000)
-      firstVisit = true // dev builds re-show their load-time toast after a relaunch
-    },
-    close() { metro.stop() },
-  }
-  return session
+  return metro
 }

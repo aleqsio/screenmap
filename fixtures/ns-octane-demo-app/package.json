@@ -1,0 +1,16 @@
+{
+  "name": "ns-octane-demo",
+  "main": "src/index.ts",
+  "private": true,
+  "dependencies": {
+    "@nativescript-community/octane": "^0.2.0",
+    "@nativescript-community/ui-drawer": "^0.1.32",
+    "@nativescript/core": "~9.1.2",
+    "octane": "0.2.11"
+  },
+  "devDependencies": {
+    "@nativescript-community/vite-octane": "^0.2.0",
+    "@nativescript/vite": "~8.0.9",
+    "typescript": "~5.9.3"
+  }
+}

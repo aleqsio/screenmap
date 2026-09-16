@@ -1,0 +1,4 @@
+// Values the Info.plist refers to by name.
+BUNDLE_DISPLAY_NAME = NS Demo;
+BUNDLE_IDENTIFIER = org.screenmap.nsdemo;
+IPHONEOS_DEPLOYMENT_TARGET = 17.0;

@@ -6,9 +6,10 @@
 
 import * as expoRouter from './providers/expo-router.mjs'
 import * as reactNavigation from './providers/react-navigation.mjs'
+import * as nativescript from './providers/nativescript.mjs'
 import * as custom from './providers/custom.mjs'
 
-export const PROVIDERS = [expoRouter, reactNavigation, custom]
+export const PROVIDERS = [expoRouter, reactNavigation, nativescript, custom]
 
 export const byId = (id) => PROVIDERS.find((p) => p.meta.id === id) ?? null
 
