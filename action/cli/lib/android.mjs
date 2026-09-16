@@ -183,10 +183,13 @@ export function freezeStatusBar(id) {
   demo('-e', 'command', 'notifications', '-e', 'visible', 'false')
 }
 
+// Expo's `run:android` output first, then NativeScript's `ns build android`.
 export function findBuiltApp(projectDir) {
   const roots = [
     path.join(projectDir, 'android', 'app', 'build', 'outputs', 'apk', 'debug'),
     path.join(projectDir, 'android', 'app', 'build', 'outputs', 'apk', 'release'),
+    path.join(projectDir, 'platforms', 'android', 'app', 'build', 'outputs', 'apk', 'debug'),
+    path.join(projectDir, 'platforms', 'android', 'app', 'build', 'outputs', 'apk', 'release'),
   ]
   for (const d of roots) {
     if (!fs.existsSync(d)) continue

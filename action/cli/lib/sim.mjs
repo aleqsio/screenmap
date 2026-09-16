@@ -77,10 +77,14 @@ export function freezeStatusBar(udid) {
     '--wifiBars', '3', '--cellularMode', 'active', '--cellularBars', '4', '--batteryState', 'charged', '--batteryLevel', '100'])
 }
 
+// Expo's `run:ios` output first, then NativeScript's `ns build ios`; a project
+// only ever has one of the two trees.
 export function findBuiltApp(projectDir) {
   const dirs = [
     path.join(projectDir, 'ios', 'build', 'Build', 'Products', 'Debug-iphonesimulator'),
     path.join(projectDir, 'ios', 'build', 'Build', 'Products', 'Release-iphonesimulator'),
+    path.join(projectDir, 'platforms', 'ios', 'build', 'Debug-iphonesimulator'),
+    path.join(projectDir, 'platforms', 'ios', 'build', 'Release-iphonesimulator'),
   ]
   for (const d of dirs) {
     if (!fs.existsSync(d)) continue

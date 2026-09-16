@@ -26,7 +26,7 @@
 // simulator or emulator. See docs/ci.md.
 import fs from 'node:fs'
 import path from 'node:path'
-import { parseArgs, loadConfig, platformConfig, readJson, writeJson, ensureDir, exists, log, sh, deepLinkFor } from './lib/util.mjs'
+import { parseArgs, loadConfig, platformConfig, readJson, writeJson, ensureDir, exists, log, sh, sleep, deepLinkFor } from './lib/util.mjs'
 import { openSession } from './lib/device.mjs'
 import { readBaseline, parseRoutes, computeSuspects, packBaseline, packDiff, downscaleAll, baselineSide, platformsIn } from './lib/bundle.mjs'
 import { loadFlows, replayFlow, verifyLanding, verifyDeepLink } from './lib/replay.mjs'
@@ -89,7 +89,22 @@ async function captureRoutes({ project, config, scheme, session, routes, flows, 
         await session.relaunch()
       }
     }
-    if (!done && !deepLinkFor(scheme, r, config.params)) {
+    if (!done && r.urlPath === '/' && !scheme) {
+      // An app with no URL scheme still has one screen a deterministic run can
+      // reach: whatever launching it shows.
+      try {
+        await session.relaunch()
+        await sleep(config.waits.boot)
+        session.screenshot(path.join(outDir, `${r.slug}.png`))
+        result.deeplink.push(r.id)
+        log(`captured ${r.id} by launching the app (no URL scheme)`)
+        if (!f) result.unflowed.push(r)
+      } catch (e) {
+        log(`launch capture failed for ${r.id}: ${e.message}`)
+        result.failed.push(r.id)
+        if (!f) result.unflowed.push(r)
+      }
+    } else if (!done && !deepLinkFor(scheme, r, config.params)) {
       // No URL means no deep link. Hand it to the agent, which reaches it by
       // tapping, rather than visiting the app root and filing the home screen
       // under this route's name.
@@ -190,8 +205,8 @@ async function baseline() {
   const work = path.join(project, '.screenmap', 'out', 'ci', 'baseline')
   fs.rmSync(work, { recursive: true, force: true }); ensureDir(work)
   const graph = parseRoutes(project, path.join(work, 'graph.json'))
-  const scheme = config.scheme ?? graph.scheme
-  if (!scheme) throw new Error('no deep-link scheme: set scheme in .screenmap/config.json')
+  const scheme = config.scheme ?? graph.scheme ?? null
+  if (!scheme) log('no URL scheme in the app or .screenmap/config.json — only the root screen, committed flows and the agent can capture anything')
   const commit = opts.commit ?? git(['rev-parse', 'HEAD'], project)
   const ref = opts.ref ?? git(['rev-parse', '--abbrev-ref', 'HEAD'], project)
   const appName = config.appName ?? graph.appName ?? path.basename(project)
