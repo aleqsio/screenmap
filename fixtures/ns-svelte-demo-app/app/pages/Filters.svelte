@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { closeModal } from 'svelte-native';
+  import { closeModal } from '@nativescript-community/svelte-native';
 </script>
 
 <page>

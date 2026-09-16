@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { showModal } from 'svelte-native';
+  import { showModal } from '@nativescript-community/svelte-native';
   import Filters from './Filters.svelte';
 
   export let id: number;

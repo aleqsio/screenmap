@@ -49,6 +49,7 @@ const FLAVOR_DEPS = [
   ['react-nativescript', 'react'],
   ['nativescript-vue', 'vue'],
   ['@nativescript/vue', 'vue'],
+  ['@nativescript-community/svelte-native', 'svelte'],
   ['svelte-native', 'svelte'],
 ]
 

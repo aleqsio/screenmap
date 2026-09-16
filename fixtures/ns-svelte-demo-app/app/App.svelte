@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { navigate } from 'svelte-native';
+  import { navigate } from '@nativescript-community/svelte-native';
   import Details from './pages/Details.svelte';
 
   const items = [{ id: 1, title: 'First' }, { id: 2, title: 'Second' }];
