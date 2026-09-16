@@ -38,7 +38,7 @@ function serveFiles(files) {
   })
 }
 
-export async function takeShot({ mapFile, changesFile, out, viewer = 'https://app.screenmap.dev', width = 1500, height = 940 }) {
+export async function takeShot({ mapFile, changesFile, out, mode, viewer = 'https://app.screenmap.dev', width = 1500, height = 940 }) {
   const chrome = findChrome()
   if (!chrome) throw new Error('no Chrome found for the comment image (set CHROME_PATH)')
   const files = { 'base.scrmap': mapFile }
@@ -51,7 +51,9 @@ export async function takeShot({ mapFile, changesFile, out, viewer = 'https://ap
     const params = new URLSearchParams()
     params.set('map', `http://localhost:${server.port}/base.scrmap`)
     if (changesFile) params.set('changes', `http://localhost:${server.port}/changes.diff.scrmap`)
-    params.set('shot', changesFile ? 'changed' : 'all')
+    // captured: only screens with a good capture, for a map the deterministic
+    // lane reached only part of
+    params.set('shot', mode ?? (changesFile ? 'changed' : 'all'))
     const url = `${viewer}/?${params}`
     const page = await browser.newPage()
     await page.setViewport({ width, height, deviceScaleFactor: 2 })

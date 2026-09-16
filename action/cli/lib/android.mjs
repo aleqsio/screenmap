@@ -183,7 +183,7 @@ export function freezeStatusBar(id) {
   demo('-e', 'command', 'notifications', '-e', 'visible', 'false')
 }
 
-// Expo's `run:android` output first, then NativeScript's `ns build android`.
+// Expo's `run:android` output and NativeScript's `ns build android`.
 export function findBuiltApp(projectDir) {
   const roots = [
     path.join(projectDir, 'android', 'app', 'build', 'outputs', 'apk', 'debug'),
@@ -191,12 +191,9 @@ export function findBuiltApp(projectDir) {
     path.join(projectDir, 'platforms', 'android', 'app', 'build', 'outputs', 'apk', 'debug'),
     path.join(projectDir, 'platforms', 'android', 'app', 'build', 'outputs', 'apk', 'release'),
   ]
-  for (const d of roots) {
-    if (!fs.existsSync(d)) continue
-    const apk = fs.readdirSync(d).find((f) => f.endsWith('.apk'))
-    if (apk) return path.join(d, apk)
-  }
-  return null
+  const apks = roots.flatMap((d) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith('.apk')).map((f) => path.join(d, f)) : []))
+  // the build most recently written wins, as on iOS
+  return apks.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0] ?? null
 }
 
 function buildToolsDirs() {

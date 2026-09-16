@@ -17,6 +17,8 @@
 //                      (EAS: reuse-by-fingerprint or build)
 //   screenmap-ci merge --inputs ios=a.scrmap,android=b.scrmap --out combined.scrmap
 //                      fold per-platform baselines into one multi-platform map
+//   screenmap-ci shot  --map <file.scrmap> [--changes <file.diff.scrmap>] [--out <png>] [--mode all|captured|changed] [--viewer <url>]
+//                      render the map in the viewer through headless Chrome
 //
 // baseline and pr capture on every platform in config.platforms (default
 // ["ios"]); --platform <name> narrows a run to one of them, which is how the
@@ -727,7 +729,7 @@ async function flowsPr() {
 async function shot() {
   const { takeShot } = await import('./lib/shot.mjs')
   const out = path.resolve(opts.out ?? 'screenmap-shot.png')
-  await takeShot({ mapFile: path.resolve(opts.map), changesFile: opts.changes ? path.resolve(opts.changes) : null, out, viewer: opts.viewer || undefined })
+  await takeShot({ mapFile: path.resolve(opts.map), changesFile: opts.changes ? path.resolve(opts.changes) : null, out, mode: opts.mode || undefined, viewer: opts.viewer || undefined })
   console.log(JSON.stringify({ shot: out }))
 }
 
