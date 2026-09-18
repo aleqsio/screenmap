@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// Snapshot tests for the route providers.
+// Snapshot tests for the route providers, plus a render check of the static
+// HTML fallback against a v2 flow sidecar.
 //
 //   node fixtures/run-tests.mjs           # check every fixture against its snapshot
 //   node fixtures/run-tests.mjs --update  # rewrite the snapshots after an intended change
@@ -14,7 +15,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
-const PARSER = path.join(HERE, '..', 'plugins', 'screenmap', 'skills', 'screenmap', 'scripts', 'parse-routes.mjs')
+const SCRIPTS = path.join(HERE, '..', 'plugins', 'screenmap', 'skills', 'screenmap', 'scripts')
+const PARSER = path.join(SCRIPTS, 'parse-routes.mjs')
+const RENDERER = path.join(SCRIPTS, 'render-map.mjs')
 const UPDATE = process.argv.includes('--update')
 
 const FIXTURES = [
@@ -26,6 +29,45 @@ const FIXTURES = [
 function stable(graph) {
   const { generatedAt, projectRoot, ...rest } = graph
   return rest
+}
+
+// The static HTML fallback must accept a v2 flow pair (argent YAML plus a
+// .meta.json sidecar keyed by step index) — the shape the skill records today.
+// Render the fixture with one such flow and check the step annotations made
+// it into the page. Returns an error message, or null when the render is fine.
+function renderWithV2Flow(root, graph) {
+  const target = graph.routes.find((r) => r.reach === 'navigation-only') ?? graph.routes[0]
+  const outDir = path.join(root, '.screenmap', 'out')
+  const flowsDir = path.join(outDir, 'flows')
+  fs.mkdirSync(flowsDir, { recursive: true })
+  fs.writeFileSync(
+    path.join(flowsDir, 'nav-test.yaml'),
+    ['steps:', '  - tool: open-url', '    args:', `      url: "${graph.scheme ?? 'app'}://"`, '  - wait: 2000', '  - tap: "Get started"', '  - wait: 1500', ''].join('\n')
+  )
+  fs.writeFileSync(
+    path.join(flowsDir, 'nav-test.meta.json'),
+    JSON.stringify({
+      formatVersion: 2,
+      name: 'nav-test',
+      title: `Navigate to ${target.title ?? target.id}`,
+      route: target.id,
+      steps: { 2: { target: 'Get started button', screen: target.id, capture: `${target.slug}.png` } },
+    })
+  )
+  const html = path.join(outDir, 'map.html')
+  try {
+    execFileSync('node', [RENDERER, path.join(outDir, 'graph.json'), '--out', html, '--no-embed'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+  } catch (e) {
+    return `render-map exited ${e.status} on a v2 flow sidecar\n${e.stderr ?? ''}`
+  }
+  const page = fs.readFileSync(html, 'utf8')
+  for (const needle of [`Navigate to ${target.title ?? target.id}`, 'Get started button', `${target.slug}.png`]) {
+    if (!page.includes(needle)) return `render-map output is missing "${needle}"`
+  }
+  return null
 }
 
 let failed = 0
@@ -44,7 +86,13 @@ for (const { dir, provider } of FIXTURES) {
     continue
   }
   const graph = stable(JSON.parse(fs.readFileSync(out, 'utf8')))
+  const renderError = renderWithV2Flow(root, graph)
   fs.rmSync(path.join(root, '.screenmap'), { recursive: true, force: true })
+  if (renderError) {
+    console.error(`FAIL ${dir}: ${renderError}`)
+    failed++
+    continue
+  }
 
   if (graph.mode !== provider) {
     console.error(`FAIL ${dir}: expected provider "${provider}", detection chose "${graph.mode}"`)
