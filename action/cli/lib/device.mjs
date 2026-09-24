@@ -59,51 +59,32 @@ export async function waitFor(promise, ms, label) {
   return t
 }
 
-// Boot the whole stack: device, app, Metro, first bundle. Returns a session
-// with capture helpers; call session.close() at the end.
-export async function openSession({ projectDir, config, scheme, platform = 'ios' }) {
+// Boot the whole stack: device, app, and whatever the runtime needs before the
+// first capture (Metro and the first bundle, for Expo). Returns a session with
+// capture helpers; call session.close() at the end.
+export async function openSession({ projectDir, config, scheme, platform = 'ios', runtime }) {
   const driver = driverFor(platform)
-  const nativescript = config.runtime === 'nativescript'
   const { id, name } = await driver.ensureBooted(config)
   driver.freezeStatusBar(id)
-  const appPath = config.appPath ?? (nativescript ? findNativescriptBuild(projectDir, platform) : driver.findBuiltApp(projectDir))
-  if (!appPath) {
-    if (nativescript) throw new Error(`no built app found under platforms/${platform === 'android' ? 'android/app/build/outputs/apk' : 'ios/build'} — build it first (ns build ${platform}) or pass app_path`)
-    throw new Error(platform === 'android'
-      ? 'no built dev client found under android/app/build/outputs/apk — build it first (expo run:android --no-bundler) or pass app_path'
-      : 'no built dev client found under ios/build — build it first (expo run:ios --no-bundler)')
-  }
+  const appPath = config.appPath ?? runtime.findBuild({ projectDir, platform, driver })
+  if (!appPath) throw new Error(runtime.missingBuild(platform))
+  runtime.checkBuild(appPath, platform)
   const appId = config.appId ?? driver.appIdOf(appPath)
-  if (nativescript) {
-    const devServer = bundleDevServer(appPath, platform)
-    if (devServer) {
-      throw new Error(
-        `${path.basename(appPath)} is a \`ns debug\` build: its JavaScript loads from the Vite dev server at ${devServer}, ` +
-        `so it only runs while that server is up. Build with \`ns build ${platform}\` and pass that .app/.apk (or leave appPath unset so it is discovered under platforms/).`
-      )
-    }
-  }
   driver.installApp(id, appPath)
   driver.grantPrivacy(id, appId)
-  if (!nativescript) driver.muteDevMenu(id, appId)
+  runtime.prepare({ driver, id, appId })
   if (scheme) driver.approveScheme(id, scheme, appId)
   await sleep(3000) // let the launcher settle (iOS resprings SpringBoard above)
   // resolve the OCR backend now — compiling the Vision helper lazily inside the
   // connect loop starves a small runner while Metro bundles, and simctl openurl
   // then times out
   ocrAvailable()
-  const metro = nativescript ? null : await connectDevClient({ projectDir, config, scheme, platform, driver, id, appId })
-  if (nativescript) {
-    // the bundle ships inside the app, so launching it is the whole boot
-    driver.terminate(id, appId)
-    await sleep(800)
-    driver.launch(id, appId)
-  }
+  const booted = await runtime.boot({ projectDir, config, scheme, platform, driver, id, appId })
   await sleep(config.waits.boot)
-  log(`session ready: ${appId} on ${name} (${id})${metro ? `, Metro :${config.metroPort}` : ', bundled JS'}`)
+  log(`session ready: ${appId} on ${name} (${id}), ${booted.note}`)
   let firstVisit = true
   const session = {
-    platform, driver, id, udid: id, appId, bundleId: appId, scheme, config,
+    platform, driver, runtime, id, udid: id, appId, bundleId: appId, scheme, config,
     deviceName: name ?? config.device,
     screenshot(outPath) { return driver.screenshot(id, outPath) },
     async visit(url, outPath, waitMs) {
@@ -119,39 +100,14 @@ export async function openSession({ projectDir, config, scheme, platform = 'ios'
       driver.terminate(id, appId); await sleep(800); driver.launch(id, appId); await sleep(4000)
       firstVisit = true // dev builds re-show their load-time toast after a relaunch
     },
-    close() { metro?.stop() },
+    close() { booted.stop() },
   }
   return session
 }
 
-// `ns build` output. Debug and Release builds of one app can sit side by
-// side and both carry their JS, so the one written last is the one meant (a
-// Solid app whose debug build halts on a dev-only assertion renders from
-// `ns build ios --release`).
-function findNativescriptBuild(projectDir, platform) {
-  const [ext, dirs] = platform === 'android'
-    ? ['.apk', ['debug', 'release'].map((c) => path.join(projectDir, 'platforms', 'android', 'app', 'build', 'outputs', 'apk', c))]
-    : ['.app', ['Debug', 'Release'].map((c) => path.join(projectDir, 'platforms', 'ios', 'build', `${c}-iphonesimulator`))]
-  const builds = dirs.flatMap((d) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith(ext)).map((f) => path.join(d, f)) : []))
-  return builds.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0] ?? null
-}
-
-// A NativeScript Vite dev build ships a stub bundle that imports every module
-// over HTTP from the dev server; headless, it dies on the first import with
-// the home screen as its only capture. Returns that server's origin, or null
-// for a self-contained bundle.
-function bundleDevServer(appPath, platform) {
-  let src = null
-  try {
-    if (platform === 'android') src = sh('unzip', ['-p', appPath, 'assets/app/bundle.mjs'], { maxBuffer: 256 * 1024 * 1024 })
-    else src = fs.readFileSync(path.join(appPath, 'app', 'bundle.mjs'), 'utf8')
-  } catch { return null }
-  return src.match(/https?:\/\/[\w.-]+:\d+(?=\/ns\/)/)?.[0] ?? null
-}
-
 // Start Metro and steer the dev client onto it; resolves with the Metro
 // handle once the first bundle has been served.
-async function connectDevClient({ projectDir, config, scheme, platform, driver, id, appId }) {
+export async function connectDevClient({ projectDir, config, scheme, platform, driver, id, appId }) {
   const metro = startMetro(projectDir, config.metroPort)
   await waitFor(metro.ready, 120000, 'Metro to start')
   // the emulator's localhost is not the host's — open the tunnel before the
