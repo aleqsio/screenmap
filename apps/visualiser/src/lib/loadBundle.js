@@ -231,8 +231,12 @@ function argentFlowToInternal(name, yamlText, meta) {
   }
 }
 
-// Route pattern matching: ties flow deep-link URLs back to nodes.
+// Route pattern matching: ties flow deep-link URLs back to nodes. A node with
+// no URL (react-navigation screens absent from the linking config carry
+// urlPath: null, see docs/scrmap-format.md) can never be reached by a deep
+// link, so it gets a matcher that matches nothing.
 function matcherFor(urlPath) {
+  if (urlPath == null) return /(?!)/
   const re = urlPath
     .split('/')
     .map((seg) =>
