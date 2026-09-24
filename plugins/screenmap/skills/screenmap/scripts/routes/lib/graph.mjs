@@ -28,7 +28,9 @@ export function normalize(fragment, ctx, { provider }) {
 
   const edges = fragment.edges ?? []
   const layouts = fragment.layouts ?? []
-  const { name: appName, scheme } = ctx.appConfig()
+  // A framework that keeps its name and scheme outside app.json / app.config.*
+  // reads them itself.
+  const { name: appName, scheme } = provider.appConfig?.(ctx) ?? ctx.appConfig()
 
   const graph = {
     generatedAt: new Date().toISOString(),
