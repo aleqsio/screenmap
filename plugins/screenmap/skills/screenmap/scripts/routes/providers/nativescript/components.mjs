@@ -3,9 +3,9 @@
 // modal, hosts in a <frame> tab, or (solid-navigation) registers in a <Route>
 // table.
 
-import path from 'node:path'
 import { extractHints } from '../../lib/hints.mjs'
-import { IMPORT_FANOUT_CAP, importMap, locateExport, findEntry, nsHints } from './common.mjs'
+import { importedLinkSources } from '../../lib/link-sources.mjs'
+import { importMap, locateExport, findEntry, nsHints } from './common.mjs'
 
 // Component-driven flavors. Each names the calls that make a component a
 // screen: `mount` renders a component as a root (the entry's is the app root;
@@ -189,25 +189,16 @@ export function parseComponents(ctx, files, ns, flavor) {
   // structure, not links.
   const byId = new Map(routes.map((r) => [r.id, r]))
   const screenOfFile = new Map(routes.map((r) => [r.file, r.id]))
-  const importsOf = new Map()
-  const fanout = new Map()
-  for (const r of routes) {
-    if (!r._abs) continue
-    const own = ctx.firstPartyImports(read(r._abs), r.file)
-    importsOf.set(r.id, own)
-    for (const f of new Set(own)) fanout.set(f, (fanout.get(f) ?? 0) + 1)
-  }
+  const scanned = routes.filter((r) => r._abs)
+  const imported = importedLinkSources(ctx, scanned, (r) => read(r._abs))
   const byComponent = [...spec.mount, ...spec.navigate, ...spec.modal].map((re) => ({ re, resolve: (n) => byId.get(idOf.get(n)) }))
   const byName = (spec.navigateByName ?? []).map((re) => ({ re, resolve: (n) => byId.get(n) }))
   const edges = []
-  for (const r of routes) {
-    if (!r._abs) continue
-    const sources = [{ src: read(r._abs), owner: null }]
-    for (const f of importsOf.get(r.id) ?? []) {
-      if ((fanout.get(f) ?? 0) > IMPORT_FANOUT_CAP) continue
-      const s = read(path.join(ctx.projectRoot, f))
-      if (s) sources.push({ src: s, owner: screenOfFile.get(f) ?? null })
-    }
+  for (const r of scanned) {
+    const sources = [
+      { src: read(r._abs), owner: null },
+      ...imported.get(r).map(({ file, src }) => ({ src, owner: screenOfFile.get(file) ?? null })),
+    ]
     const seen = new Set()
     for (const { src, owner } of sources)
       for (const { re, resolve } of [...byComponent, ...byName])

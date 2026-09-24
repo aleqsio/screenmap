@@ -4,7 +4,8 @@
 import path from 'node:path'
 import { extractHints } from '../../lib/hints.mjs'
 import { closeOf, inner, splitTop, objectEntries, buildConstantMap, constValue } from '../../lib/literals.mjs'
-import { IMPORT_FANOUT_CAP, importMap, locateExport, nsHints } from './common.mjs'
+import { importedLinkSources } from '../../lib/link-sources.mjs'
+import { importMap, locateExport, nsHints } from './common.mjs'
 
 export const CODE_EXT = /\.(ts|js|mjs)$/
 
@@ -365,27 +366,15 @@ export function parseAngular(ctx, files, ns) {
   // ---------- edges ----------
 
   // Links live in the screen, its template, and the components it imports one
-  // hop out; a service or header imported by most screens would attribute its
-  // navigation to every one of them, so files over the fanout cap are skipped.
-  const importsOf = new Map()
-  const fanout = new Map()
-  for (const r of routes) {
-    if (!r._abs) continue
-    const own = ctx.firstPartyImports(ctx.readFileOrNull(r._abs) ?? '', r.file)
-    importsOf.set(r.id, own)
-    for (const f of new Set(own)) fanout.set(f, (fanout.get(f) ?? 0) + 1)
-  }
+  // hop out, with their templates.
+  const imported = importedLinkSources(ctx, routes.filter((r) => r._abs), (r) => ctx.readFileOrNull(r._abs) ?? '')
 
   const edges = []
   for (const r of routes) {
     const sources = [r._own]
-    for (const f of importsOf.get(r.id) ?? []) {
-      if ((fanout.get(f) ?? 0) > IMPORT_FANOUT_CAP) continue
-      const abs = path.join(ctx.projectRoot, f)
-      const s = ctx.readFileOrNull(abs)
-      if (!s) continue
-      sources.push(s)
-      if (/\.component\.[jt]s$/.test(f)) { const t = templateOf(ctx, abs); if (t) sources.push(t) }
+    for (const { file, src } of imported.get(r) ?? []) {
+      sources.push(src)
+      if (/\.component\.[jt]s$/.test(file)) { const t = templateOf(ctx, path.join(ctx.projectRoot, file)); if (t) sources.push(t) }
     }
     const seen = new Set()
     for (const s of sources) {

@@ -4,6 +4,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { extractHints } from '../lib/hints.mjs'
+import { importedLinkSources } from '../lib/link-sources.mjs'
 
 export const meta = {
   id: 'expo-router',
@@ -129,32 +130,14 @@ export function parse(ctx) {
   const PATHNAME_RE = /pathname\s*:\s*["'`]([^"'`]+)["'`]/g
   const ROUTER_RE = /(?:router|navigation)\.(?:push|replace|navigate)\(\s*["'`]([^"'`]+)["'`]/g
 
-  // A route's own source is not where its links live in ordinary code: put the
-  // <Link> in a list-item component and the screen reads as unreachable. So the
-  // scan follows each route's first-party imports one hop.
-  //
-  // One hop, and not into shared chrome: a header or tab bar imported by most
-  // screens would otherwise attribute its links to every one of them and turn
-  // the graph into a hairball. Files imported by more than IMPORT_FANOUT_CAP
-  // routes are treated as chrome and skipped.
-  const IMPORT_FANOUT_CAP = 8
-  const importsOfRoute = new Map() // route.id → [repo-rel file]
-  const fanout = new Map() // repo-rel file → route count
-  for (const r of routes) {
-    const own = ctx.firstPartyImports(r._src, r.file)
-    importsOfRoute.set(r.id, own)
-    for (const f of new Set(own)) fanout.set(f, (fanout.get(f) ?? 0) + 1)
-  }
+  // A route's links live in its own source and the modules it imports one hop
+  // out (see lib/link-sources.mjs).
+  const imported = importedLinkSources(ctx, routes, (r) => r._src)
 
   const edges = []
   for (const r of routes) {
     const raws = new Set()
-    const sources = [r._src]
-    for (const f of importsOfRoute.get(r.id) ?? []) {
-      if ((fanout.get(f) ?? 0) > IMPORT_FANOUT_CAP) continue
-      const s = ctx.readFileOrNull(path.join(ctx.projectRoot, f))
-      if (s) sources.push(s)
-    }
+    const sources = [r._src, ...imported.get(r).map((m) => m.src)]
     for (const src of sources)
       for (const re of [HREF_RE, PATHNAME_RE, ROUTER_RE])
         for (const m of src.matchAll(re)) raws.add(m[1])

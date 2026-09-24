@@ -13,6 +13,7 @@ plugins/screenmap/skills/screenmap/scripts/
     lib/hints.mjs           runtime-state hints (bottom sheets, modals)
     lib/graph.mjs           defaults, orphan detection, summary, validation
     lib/literals.mjs        tolerant JS literal and constant reading
+    lib/link-sources.mjs    the one-hop, fanout-capped import scan for links
     providers/
       expo-router.mjs
       react-navigation.mjs

@@ -3,10 +3,6 @@
 
 import path from 'node:path'
 
-// Links live in the screen and the modules it imports one hop out; a module
-// imported by more screens than this is chrome, not a link.
-export const IMPORT_FANOUT_CAP = 8
-
 // identifier → { file, name } for one module's imports
 export function importMap(ctx, src, fromFile) {
   const map = {}

@@ -2,6 +2,7 @@
 // between them.
 
 import path from 'node:path'
+import { importedLinkSources } from '../../lib/link-sources.mjs'
 import { findEntry } from './common.mjs'
 
 const moduleOf = (s) => s.replace(/^~\/|^\.\/|^\//, '').replace(/\.(xml|ts|js)$/, '')
@@ -33,9 +34,9 @@ export function parseCore(ctx, files, ns) {
   const NAV_RE = /\b(navigate|showModal)\(\s*(?:\{[\s\S]*?\bmoduleName\s*:\s*(["'])([^"']+)\2|(["'])([^"']+)\4)/g
   const edges = []
   const modalOnly = new Set()
+  const imported = importedLinkSources(ctx, routes.filter((r) => r._code), (r) => ctx.readFileOrNull(r._code) ?? '')
   for (const r of routes) {
-    const sources = [r._code ? ctx.readFileOrNull(r._code) ?? '' : '']
-    if (r._code) for (const f of ctx.firstPartyImports(sources[0], r.file)) { const s = ctx.readFileOrNull(path.join(ctx.projectRoot, f)); if (s) sources.push(s) }
+    const sources = [r._code ? ctx.readFileOrNull(r._code) ?? '' : '', ...(imported.get(r) ?? []).map((m) => m.src)]
     const seen = new Set()
     for (const s of sources) for (const m of s.matchAll(NAV_RE)) {
       const target = byId.get(moduleOf(m[3] ?? m[5]))
