@@ -20,6 +20,7 @@
 
 import path from 'node:path'
 import { extractHints } from '../lib/hints.mjs'
+import { DEFAULT_SKIP } from '../lib/project.mjs'
 
 export const meta = {
   id: 'nativescript',
@@ -36,6 +37,9 @@ export function deepLinkTemplates(scheme) {
 const CODE_EXT = /\.(ts|js|mjs)$/
 const SKIP_FILE = /\.(spec|test|mock|stub|d)\.[jt]sx?$|(^|\/)(mocks?|__mocks__|__tests__|tests?|e2e)\//
 const IMPORT_FANOUT_CAP = 8
+// Native resources and build output can sit inside the app directory
+// (app/App_Resources in older projects); no screen lives in either.
+const SKIP_DIR = new RegExp(`${DEFAULT_SKIP.source}|(^|/)(App_Resources|platforms|\\.ns-vite-build)(/|$)`)
 
 // The dependency that names each framework flavor. Angular first: an Angular
 // app can carry a stray UI dependency, but nothing else carries @nativescript/angular.
@@ -984,7 +988,7 @@ function flavorOf(ctx) {
 function sourceFiles(ctx, ns) {
   for (const d of [ns.appPath, 'src', 'app']) {
     if (!ctx.exists(d)) continue
-    const files = ctx.walk(path.join(ctx.projectRoot, d)).filter((f) => /\.(ts|tsx|js|jsx|mjs|html|xml|vue|svelte)$/.test(f) && !SKIP_FILE.test(ctx.rel(f)))
+    const files = ctx.walk(path.join(ctx.projectRoot, d), { skip: SKIP_DIR }).filter((f) => /\.(ts|tsx|js|jsx|mjs|html|xml|vue|svelte)$/.test(f) && !SKIP_FILE.test(ctx.rel(f)))
     if (files.length) return files
   }
   return []

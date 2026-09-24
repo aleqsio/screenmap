@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const IMPORT_EXT = ['.tsx', '.ts', '.jsx', '.js']
-const DEFAULT_SKIP = /(^|\/)(node_modules|\.git|\.expo|\.screenmap|ios|android|build|dist|platforms|App_Resources|hooks|\.ns-vite-build)(\/|$)/
+export const DEFAULT_SKIP = /(^|\/)(node_modules|\.git|\.expo|\.screenmap|ios|android|build|dist)(\/|$)/
 
 export function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
