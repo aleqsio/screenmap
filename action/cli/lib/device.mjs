@@ -66,12 +66,12 @@ export async function openSession({ projectDir, config, scheme, platform = 'ios'
   const nativescript = config.runtime === 'nativescript'
   const { id, name } = await driver.ensureBooted(config)
   driver.freezeStatusBar(id)
-  const appPath = config.appPath ?? driver.findBuiltApp(projectDir)
+  const appPath = config.appPath ?? (nativescript ? findNativescriptBuild(projectDir, platform) : driver.findBuiltApp(projectDir))
   if (!appPath) {
-    const where = nativescript
-      ? (platform === 'android' ? 'platforms/android/app/build/outputs/apk — build it first (ns build android)' : 'platforms/ios/build — build it first (ns build ios)')
-      : (platform === 'android' ? 'android/app/build/outputs/apk — build it first (expo run:android --no-bundler)' : 'ios/build — build it first (expo run:ios --no-bundler)')
-    throw new Error(`no built app found under ${where}, or pass app_path`)
+    if (nativescript) throw new Error(`no built app found under platforms/${platform === 'android' ? 'android/app/build/outputs/apk' : 'ios/build'} — build it first (ns build ${platform}) or pass app_path`)
+    throw new Error(platform === 'android'
+      ? 'no built dev client found under android/app/build/outputs/apk — build it first (expo run:android --no-bundler) or pass app_path'
+      : 'no built dev client found under ios/build — build it first (expo run:ios --no-bundler)')
   }
   const appId = config.appId ?? driver.appIdOf(appPath)
   if (nativescript) {
@@ -122,6 +122,18 @@ export async function openSession({ projectDir, config, scheme, platform = 'ios'
     close() { metro?.stop() },
   }
   return session
+}
+
+// `ns build` output. Debug and Release builds of one app can sit side by
+// side and both carry their JS, so the one written last is the one meant (a
+// Solid app whose debug build halts on a dev-only assertion renders from
+// `ns build ios --release`).
+function findNativescriptBuild(projectDir, platform) {
+  const [ext, dirs] = platform === 'android'
+    ? ['.apk', ['debug', 'release'].map((c) => path.join(projectDir, 'platforms', 'android', 'app', 'build', 'outputs', 'apk', c))]
+    : ['.app', ['Debug', 'Release'].map((c) => path.join(projectDir, 'platforms', 'ios', 'build', `${c}-iphonesimulator`))]
+  const builds = dirs.flatMap((d) => (fs.existsSync(d) ? fs.readdirSync(d).filter((f) => f.endsWith(ext)).map((f) => path.join(d, f)) : []))
+  return builds.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0] ?? null
 }
 
 // A NativeScript Vite dev build ships a stub bundle that imports every module
