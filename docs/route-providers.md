@@ -12,10 +12,12 @@ plugins/screenmap/skills/screenmap/scripts/
     lib/project.mjs         walking, tsconfig aliases, import following, app config
     lib/hints.mjs           runtime-state hints (bottom sheets, modals)
     lib/graph.mjs           defaults, orphan detection, summary, validation
+    lib/literals.mjs        tolerant JS literal and constant reading
+    lib/link-sources.mjs    the one-hop, fanout-capped import scan for links
     providers/
       expo-router.mjs
       react-navigation.mjs
-      nativescript.mjs
+      nativescript/         index.mjs (detect, parse) + one module per flavor family
       custom.mjs
 ```
 
@@ -117,7 +119,7 @@ Angular Router gives every screen a URL *inside* the app
 (`/talk/(todayTab:today)`), but nothing says which of those a
 `myapp://…` link opens: a NativeScript app registers its scheme in
 `App_Resources` and maps URLs onto navigation in its own code. So the
-`nativescript` provider starts every route navigation-only and reads the map
+`nativescript` provider starts every route navigation-only and the map comes
 from `.screenmap/config.json`:
 
 ```jsonc
@@ -135,11 +137,13 @@ from `.screenmap/config.json`:
 
 Keys are route ids (the Angular path without the leading slash; the title
 with outlet notation also works). `"*": true` says the app's handler mirrors
-the router, so every route deep-links by its own URL. The app id, scheme and
+the router, so every route deep-links by its own URL. The overlay is applied
+by `normalize()` after whichever provider ran, so a react-navigation or custom
+map can use it too, to add a link the parser cannot see or drop a wrong one.
+The app id, scheme and
 name come from `nativescript.config.ts`, `App_Resources/iOS/Info.plist`
 (resolving `${BUNDLE_IDENTIFIER}`-style xcconfig variables) and
-`AndroidManifest.xml`; `ctx.appConfig()` does that reading, so a provider for
-another NativeScript flavour gets it for free.
+`AndroidManifest.xml`, read by the provider's own `appConfig` hook.
 
 The Angular flavour follows `loadChildren` into lazy route files, named
 outlets, `redirectTo` aliases, enum-valued paths and barrel re-exports; a
@@ -217,14 +221,16 @@ export function parse(ctx) {
 | `resolveImport(spec, fromFile)` | one import specifier → absolute path, alias-aware |
 | `firstPartyImports(src, fromRel)` | every first-party import of a file, as repo-relative paths |
 | `pathAliases()` | parsed `tsconfig.json` `compilerOptions.paths` (JSONC-tolerant) |
-| `appConfig()` | `{ name, scheme, slug }` from `app.json` or `app.config.*`, else from `nativescript.config.*` + `App_Resources` |
-| `nativescriptConfig()` | `{ id, appPath, appResourcesPath }` from `nativescript.config.*`, or null |
+| `appConfig()` | `{ name, scheme, slug }` from `app.json` or `app.config.*` |
 | `deps()`, `packageJson()` | |
 | `routeMatcher(urlPath)` | pattern → RegExp, understands `[param]` and `:param` |
 
-A provider may also export `deepLinkTemplates(scheme)` to replace the graph's
-`deepLinkTemplates` block; the default advertises an Expo Go URL, which means
-nothing for a framework Expo Go cannot host.
+A provider may also export two hooks. `appConfig(ctx)` returns the
+`{ name, scheme, slug }` the graph records, for a framework that keeps them
+somewhere other than `app.json` (NativeScript reads `App_Resources`).
+`deepLinkTemplates(scheme)` replaces the graph's `deepLinkTemplates` block;
+the default advertises an Expo Go URL, which means nothing for a framework
+Expo Go cannot host.
 
 Register it in `registry.mjs`, add a fixture under `fixtures/`, and add a line
 to `fixtures/run-tests.mjs`.

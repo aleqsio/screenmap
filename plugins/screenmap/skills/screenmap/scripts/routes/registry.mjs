@@ -6,7 +6,7 @@
 
 import * as expoRouter from './providers/expo-router.mjs'
 import * as reactNavigation from './providers/react-navigation.mjs'
-import * as nativescript from './providers/nativescript.mjs'
+import * as nativescript from './providers/nativescript/index.mjs'
 import * as custom from './providers/custom.mjs'
 
 export const PROVIDERS = [expoRouter, reactNavigation, nativescript, custom]

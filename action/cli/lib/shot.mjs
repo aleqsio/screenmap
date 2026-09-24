@@ -1,10 +1,8 @@
 // Render the PR-comment image: serve the two bundles from a throwaway local
-// server (CORS-open), open the hosted visualiser in headless Chrome with
-// ?shot, wait for the viewer's readiness flag, screenshot. No vite build on
-// the runner, and it works for private repos too — the bundles never leave
-// the machine. Chrome's local network access check would refuse the https
-// viewer a fetch from http://localhost, so it is switched off for this one
-// headless browser.
+// server (CORS-open; https viewer → http://localhost is allowed by Chrome),
+// open the hosted visualiser in headless Chrome with ?shot, wait for the
+// viewer's readiness flag, screenshot. No vite build on the runner, and it
+// works for private repos too — the bundles never leave the machine.
 import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
@@ -38,7 +36,7 @@ function serveFiles(files) {
   })
 }
 
-export async function takeShot({ mapFile, changesFile, out, mode, viewer = 'https://app.screenmap.dev', width = 1500, height = 940 }) {
+export async function takeShot({ mapFile, changesFile, out, viewer = 'https://app.screenmap.dev', width = 1500, height = 940 }) {
   const chrome = findChrome()
   if (!chrome) throw new Error('no Chrome found for the comment image (set CHROME_PATH)')
   const files = { 'base.scrmap': mapFile }
@@ -46,14 +44,12 @@ export async function takeShot({ mapFile, changesFile, out, mode, viewer = 'http
   for (const f of Object.values(files)) if (!fs.existsSync(f)) throw new Error(`missing bundle: ${f}`)
   const server = await serveFiles(files)
   const { default: puppeteer } = await import('puppeteer-core')
-  const browser = await puppeteer.launch({ executablePath: chrome, headless: true, args: ['--no-sandbox', '--force-color-profile=srgb', '--disable-features=LocalNetworkAccessChecks,PrivateNetworkAccessRespectPreflightResults,PrivateNetworkAccessSendPreflights'] })
+  const browser = await puppeteer.launch({ executablePath: chrome, headless: true, args: ['--no-sandbox', '--force-color-profile=srgb'] })
   try {
     const params = new URLSearchParams()
     params.set('map', `http://localhost:${server.port}/base.scrmap`)
     if (changesFile) params.set('changes', `http://localhost:${server.port}/changes.diff.scrmap`)
-    // captured: only screens with a good capture, for a map the deterministic
-    // lane reached only part of
-    params.set('shot', mode ?? (changesFile ? 'changed' : 'all'))
+    params.set('shot', changesFile ? 'changed' : 'all')
     const url = `${viewer}/?${params}`
     const page = await browser.newPage()
     await page.setViewport({ width, height, deviceScaleFactor: 2 })
