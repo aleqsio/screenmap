@@ -131,7 +131,7 @@ You need all four of these:
    | `appName` | the project directory name | Name recorded in the bundle |
    | `device`, `bundleId`, `appPath` | — | Pre-multi-platform spellings of the `ios.*` keys above; still honoured |
    | `metroPort` | `8081` | Port Metro starts on (Expo only) |
-   | `runtime` | detected | `expo` or `nativescript`. Detected from `nativescript.config.*`; a NativeScript session launches the installed app instead of steering a dev client onto Metro |
+   | `runtime` | from the route provider | `expo` or `nativescript`: `nativescript` when the `nativescript` provider read the app, else `expo`. Set it when a `custom` provider reads a NativeScript app. A NativeScript session launches the installed app instead of steering a dev client onto Metro |
    | `routes.provider` | `auto` | Pin the route provider (`expo-router`, `react-navigation`, `nativescript`, `custom`) when detection is wrong. See [docs/route-providers.md](docs/route-providers.md) |
    | `routes.links` | `{}` | NativeScript only: which routes a deep link opens, route id → path after the scheme (`true` for the route's own URL, `"*"` as the default). Without it every screen is reached by tapping |
    | `params` | `{}` | Real values for route parameters, see below |

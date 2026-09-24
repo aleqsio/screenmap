@@ -206,7 +206,7 @@ async function baseline() {
   const work = path.join(project, '.screenmap', 'out', 'ci', 'baseline')
   fs.rmSync(work, { recursive: true, force: true }); ensureDir(work)
   const graph = parseRoutes(project, path.join(work, 'graph.json'))
-  const runtime = runtimeFor(config)
+  const runtime = runtimeFor(config, graph)
   const scheme = config.scheme ?? graph.scheme ?? null
   if (!scheme) {
     if (runtime.requiresScheme) throw new Error('no deep-link scheme: set scheme in .screenmap/config.json')
@@ -316,7 +316,7 @@ async function pr() {
   fs.rmSync(work, { recursive: true, force: true }); ensureDir(work)
   const base = readBaseline(opts.baseline, path.join(work, 'base-bundle'))
   const headGraph = parseRoutes(project, path.join(work, 'head-graph.json'))
-  const runtime = runtimeFor(config)
+  const runtime = runtimeFor(config, headGraph)
   const scheme = config.scheme ?? headGraph.scheme ?? base.graph.scheme
   const baseSha = opts.base ?? base.manifest.source?.commit ?? null
   const headSha = opts.head ?? git(['rev-parse', 'HEAD'], project)

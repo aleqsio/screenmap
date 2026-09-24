@@ -57,8 +57,10 @@ const nativescript = {
 
 export const RUNTIMES = { expo, nativescript }
 
-export function runtimeFor(config) {
-  const id = config.runtime
+// The route provider that read the app already said what it is; config.runtime
+// overrides that, for a custom provider over a NativeScript app say.
+export function runtimeFor(config, graph) {
+  const id = config.runtime ?? (graph.mode === 'nativescript' ? 'nativescript' : 'expo')
   if (!RUNTIMES[id]) throw new Error(`unknown runtime "${id}" — expected ${Object.keys(RUNTIMES).join(' | ')}`)
   return RUNTIMES[id]
 }
