@@ -57,12 +57,19 @@ export function listBooted() {
   return Object.values(j.devices).flat().filter((d) => d.state === 'Booted').map((d) => ({ id: d.udid, name: d.name }))
 }
 
+// config.device is a UDID or a name. A UDID pins the lane to that simulator:
+// on a shared Mac other jobs keep their own simulators booted, and "whatever
+// is booted" would install onto and capture one of theirs. A name is only a
+// preference — a booted match first, then any booted device, then boot it.
 export async function ensureBooted(config) {
-  const booted = listBooted()
-  if (booted.length) { log(`simulator already booted: ${booted[0].name} (${booted[0].id})`); return booted[0] }
   const j = JSON.parse(sh('xcrun', ['simctl', 'list', 'devices', 'available', '-j']))
   const all = Object.values(j.devices).flat()
-  const pick = all.find((d) => d.name === config.device) ?? all.find((d) => /iPhone/.test(d.name))
+  const pinned = all.find((d) => d.udid === config.device)
+  if (!pinned && /^[0-9A-F]{8}-([0-9A-F]{4}-){3}[0-9A-F]{12}$/i.test(config.device ?? '')) throw new Error(`simulator ${config.device} is not available`)
+  const booted = (pinned ? [pinned] : all).filter((d) => d.state === 'Booted')
+  const running = booted.find((d) => d.name === config.device) ?? booted[0]
+  if (running) { log(`simulator already booted: ${running.name} (${running.udid})`); return { id: running.udid, name: running.name } }
+  const pick = pinned ?? all.find((d) => d.name === config.device) ?? all.find((d) => /iPhone/.test(d.name))
   if (!pick) throw new Error(`no available simulator (wanted "${config.device}")`)
   log(`booting ${pick.name} (${pick.udid})`)
   sh('xcrun', ['simctl', 'boot', pick.udid])
