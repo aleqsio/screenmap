@@ -8,7 +8,7 @@
     "build": "vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "test": "node --test src/lib"
+    "test": "node --test"
   },
   "dependencies": {
     "@fontsource-variable/doto": "^5.3.0",
