@@ -12,10 +12,11 @@ plugins/screenmap/skills/screenmap/scripts/
     lib/project.mjs         walking, tsconfig aliases, import following, app config
     lib/hints.mjs           runtime-state hints (bottom sheets, modals)
     lib/graph.mjs           defaults, orphan detection, summary, validation
+    lib/literals.mjs        tolerant JS literal and constant reading
     providers/
       expo-router.mjs
       react-navigation.mjs
-      nativescript.mjs
+      nativescript/         index.mjs (detect, parse) + one module per flavor family
       custom.mjs
 ```
 
