@@ -208,7 +208,12 @@ async function baseline() {
   fs.rmSync(work, { recursive: true, force: true }); ensureDir(work)
   const graph = parseRoutes(project, path.join(work, 'graph.json'))
   const scheme = config.scheme ?? graph.scheme ?? null
-  if (!scheme) log('no URL scheme in the app or .screenmap/config.json — only the root screen, committed flows and the agent can capture anything')
+  if (!scheme) {
+    // an Expo dev client is steered onto Metro through its scheme, so without
+    // one the session would only time out connecting
+    if (config.runtime !== 'nativescript') throw new Error('no deep-link scheme: set scheme in .screenmap/config.json')
+    log('no URL scheme in the app or .screenmap/config.json — only the root screen, committed flows and the agent can capture anything')
+  }
   const commit = opts.commit ?? git(['rev-parse', 'HEAD'], project)
   const ref = opts.ref ?? git(['rev-parse', '--abbrev-ref', 'HEAD'], project)
   const appName = config.appName ?? graph.appName ?? path.basename(project)
