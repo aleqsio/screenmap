@@ -39,6 +39,16 @@ const { opts, positional } = parseArgs(process.argv.slice(2))
 const cmd = positional[0]
 
 const git = (args, cwd) => { try { return sh('git', args, { cwd }) } catch { return null } }
+// git names changed files from the repository root whatever the cwd, but routes
+// and the suspect import walk are project-relative. Rebase every path onto the
+// project; in a monorepo, files outside it become ../… paths, which is also
+// how diff-map resolves imports of a shared workspace package.
+const changedFiles = (project, ...range) => {
+  const out = git(['diff', '--name-only', ...range], project)
+  if (out === null) return null
+  const prefix = git(['rev-parse', '--show-prefix'], project) || '.'
+  return out.split('\n').filter(Boolean).map((f) => path.posix.relative(prefix, f))
+}
 const copyShots = (fromDir, toDir, slug) => {
   if (!exists(fromDir)) return 0
   ensureDir(toDir)
@@ -205,12 +215,12 @@ async function baseline() {
   if (opts.previous && exists(opts.previous) && !opts.full) {
     prev = readBaseline(opts.previous, path.join(work, 'prev'))
     prevCommit = prev.manifest.source?.commit
-    const changed = prevCommit ? git(['diff', '--name-only', prevCommit, 'HEAD'], project) : null
+    const changed = prevCommit ? changedFiles(project, prevCommit, 'HEAD') : null
     if (changed === null) {
       log('previous baseline commit not in history — doing a full capture')
       prev = null
     } else {
-      const suspects = computeSuspects({ diffDir: path.join(work, 'diff'), baseGraph: prev.graph, headGraph: graph, changedFiles: changed.split('\n').filter(Boolean), projectDir: project, depth: config.suspects.depth, broadCap: config.suspects.broadCap })
+      const suspects = computeSuspects({ diffDir: path.join(work, 'diff'), baseGraph: prev.graph, headGraph: graph, changedFiles: changed, projectDir: project, depth: config.suspects.depth, broadCap: config.suspects.broadCap })
       suspect = new Set(suspects.capture.filter((c) => c.status !== 'D').map((c) => c.id))
     }
   }
@@ -303,7 +313,7 @@ async function pr() {
   const platforms = opts.platform ? [String(opts.platform)] : config.platforms
   const multi = platforms.length > 1
   let changed = opts['changed-files'] ? fs.readFileSync(opts['changed-files'], 'utf8').split('\n').filter(Boolean) : null
-  if (!changed && baseSha) changed = (git(['diff', '--name-only', `${baseSha}...${headSha}`], project) ?? git(['diff', '--name-only', baseSha, headSha], project) ?? '').split('\n').filter(Boolean)
+  if (!changed && baseSha) changed = changedFiles(project, `${baseSha}...${headSha}`) ?? changedFiles(project, baseSha, headSha)
   if (!changed) throw new Error('cannot determine changed files: pass --changed-files <list> or make sure the base commit is fetched')
 
   const diffDir = path.join(work, 'diff')

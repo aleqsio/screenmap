@@ -115,7 +115,7 @@ async function waitBootComplete(id, timeoutMs = 300000) {
 export async function ensureBooted(config) {
   const booted = listBooted()
   if (booted.length) {
-    const pick = config.device ? booted.find((d) => d.name === config.device) ?? booted[0] : booted[0]
+    const pick = booted.find((d) => d.id === config.device || d.name === config.device) ?? booted[0]
     log(`android device already available: ${pick.name} (${pick.id})`)
     // adb seeing a device is not the device being usable. Returning a
     // half-booted one means install and launch fail later with opaque

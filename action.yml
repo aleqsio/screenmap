@@ -190,7 +190,13 @@ runs:
     - name: Install project dependencies
       shell: bash
       working-directory: ${{ inputs.project }}
+      # In a monorepo the lockfile sits at the workspace root, not in the
+      # project, so install from the nearest directory up to the repo root
+      # that has one.
       run: |
+        dir=$(pwd -P); root=$(git rev-parse --show-toplevel 2>/dev/null || echo "$dir")
+        until [ -f "$dir/pnpm-lock.yaml" ] || [ -f "$dir/yarn.lock" ] || [ -f "$dir/package-lock.json" ] || [ "$dir" = "$root" ] || [ "$dir" = / ]; do dir=$(dirname "$dir"); done
+        cd "$dir"
         if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile
         elif [ -f yarn.lock ]; then yarn install --frozen-lockfile
         else npm ci; fi
@@ -344,9 +350,10 @@ runs:
         AGENT_API_KEY: ${{ inputs.agent_api_key }}
         SCREENMAP_APP_PATH: ${{ steps.app.outputs.app }}
         SCREENMAP_PLATFORMS: ${{ inputs.platform }}
-        # the device this action actually provisioned, so the driver boots that
-        # one rather than whichever happens to be listed first
-        SCREENMAP_DEVICE_IOS: ${{ inputs.simulator }}
+        # the device this action actually provisioned, so the driver uses that
+        # one rather than whichever happens to be listed first. The UDID pins it
+        # even on a runner where other simulators are already booted.
+        SCREENMAP_DEVICE_IOS: ${{ env.SIM_UDID || inputs.simulator }}
         SCREENMAP_DEVICE_ANDROID: ${{ inputs.avd }}
         GH_TOKEN: ${{ inputs.github_token }}
       run: |
