@@ -16,11 +16,6 @@
   },
   "waits": { "transition": 2500, "network": 6000, "boot": 15000 },
   "suspects": { "broadCap": 8 },
-  "routes": {
-    "$comment": "provider pins the route provider (expo-router | react-navigation | nativescript | custom) when detection is wrong; auto detects. links is for NativeScript apps, whose deep links are whatever the app's own URL handler opens: route id -> path after the scheme, true for the route's own URL, \"*\" as the default for routes not listed. Everything without a link is reached by tapping.",
-    "provider": "auto",
-    "links": { "talk/today": "today", "settings": true }
-  },
   "agent": {
     "$comment": "provider: claude (default) | codex | gemini | opencode; or command: a bash template run instead ({promptFile} / $SCREENMAP_PROMPT_FILE carry the task), with keyEnv naming the env var it needs. scan overrides the effort preset: unflowed | params | all",
     "enabled": true,
