@@ -68,7 +68,7 @@ node <this skill's dir>/scripts/parse-routes.mjs <project>
 
 The parser picks a **route provider** for the project — `expo-router`, `react-navigation`, `nativescript` (Angular Router, Core XML pages, or the components an Octane / React / Vue / Svelte app mounts, pushes and presents), or a `custom` command — and prints which one it chose and why. See `docs/route-providers.md` for the full contract.
 
-A NativeScript app has no linking config: its deep links are whatever its own URL handler does with `<scheme>://…`. So every route starts `navigation-only`, and `.screenmap/config.json` says which ones a link opens — `{"routes":{"links":{"talk/today":"today","settings":true}}}` (route id → path after the scheme, `true` for the route's own URL, `"*"` as the default). Read the app's URL-handling code (grep for the scheme from `graph.json`, `openURL`, `activityNewIntentEvent`) and propose that map to the user before the sweep; without it the deterministic lane captures nothing and every screen is on your tap queue. When `graph.json` has `"scheme": null` the app registers no URL scheme at all: there is nothing to deep-link, so capture the root (`urlPath: "/"`) by launching the app and reach every other screen by tapping in Phase 5b.
+For a NativeScript project (`mode` is `nativescript`), read `references/nativescript.md` in this skill's directory now: deep links come from `routes.links`, there is no Metro, and it has its own state hints and PR-diff steps.
 
 Read the produced `<project>/.screenmap/out/graph.json` and report the summary to the user: the provider (`mode`), route count, layouts (with navigator types), edges (flag unresolved ones), routes with state hints, routes needing params, and **routes with no deep link** (`navigationOnlyRoutes`).
 
@@ -91,13 +91,6 @@ If `--static` was requested, jump to Phase 6.
 ## Phase 3 — boot the app
 
 Run this phase once per platform.
-
-**NativeScript apps, either platform.** There is no Metro and no dev client: the JS bundle ships inside the app, so building and installing it is the whole boot. If the app is already installed and running, use it as-is. Otherwise:
-
-- iOS: `ns build ios` (a simulator build; minutes on the first run) writes `platforms/ios/build/Debug-iphonesimulator/<name>.app`. Install and launch it: `xcrun simctl install booted <that .app>` then `xcrun simctl launch booted <bundle id>` — the id is `id` in `nativescript.config.ts`. **Use `ns build`, not the output of `ns debug` / `ns run`:** with `@nativescript/vite` those produce a stub bundle that imports every module from the Vite dev server, so the app dies on launch ("HTTP import failed: http://…:5173/…") the moment that server is not running, and every capture is the simulator home screen. If the user's dev session is up you may use the installed app as-is, but never terminate and relaunch it headlessly. `ns run ios --no-hmr` is fine as long as it stays running. A debug build that launches to a blank screen with a framework assertion in the device log (a Solid app has done this, from a dev-only reactivity check) usually renders from `ns build ios --release`; the newest build under `platforms/ios/build` is the one picked up.
-- Android: `ns build android` writes `platforms/android/app/build/outputs/apk/debug/app-debug.apk`; `adb install -r <apk>` then launch with the monkey command from the table. No `adb reverse` is needed. The same `ns build` rule applies.
-- Then verify deep linking exactly as below, with the scheme from `graph.json` (often the bundle id itself, e.g. `com.example.app://`). On iOS 18.3+ the first `simctl openurl` of a custom scheme raises an "Open in …?" prompt; pre-approve it the way CI does — `xcrun simctl spawn booted defaults write com.apple.launchservices.schemeapproval "com.apple.CoreSimulator.CoreSimulatorBridge-->SCHEME" -string BUNDLE_ID`, then `xcrun simctl spawn booted launchctl kickstart -k system/com.apple.SpringBoard` — or tap Open once.
-- Skip the Metro steps of the iOS and Android sections; everything else (devices, screenshots, status bar) applies unchanged.
 
 **iOS**
 
@@ -162,10 +155,6 @@ For each route whose `stateHints` is non-empty, deep-link to it again and:
 **rn-modal** — find and `tap` the trigger, capture `screens/<slug>--modal.png`, then dismiss (close button, tap outside, or just deep-link away).
 
 **router-modal** — already captured as its own route in Phase 4; nothing extra needed.
-
-**drawer** / **native-menu** (NativeScript component apps) — a `<drawer>` in the screen, or a `menu=` / `contextMenu=` prop from `@nstudio/nativescript-menu`. Open the drawer with its hamburger (or a swipe from the left edge, starting well inside the screen) and capture `<slug>--drawer.png`; open a native menu by tapping (or long-pressing, for a context menu) the control that carries it and capture `<slug>--menu.png`, then dismiss by tapping outside.
-
-**ns-modal** (NativeScript) — the hint names the component the screen opens (`ModalDialogService`, `NativeDialogService.open`, `showModal`), or the page module for Core apps. Read the screen's source for the control that opens it, `tap` it, capture `screens/<slug>--<component>.png` with the component name in kebab case minus its `Component` suffix (`ShareDialogComponent` → `<slug>--share-dialog.png`), then dismiss it (its close button, or swipe down on iOS). A `bottom-sheet` hint with a `component` and no snap points is a material bottom sheet: open it the same way and capture `<slug>--sheet.png`. Generic alert and confirm dialogs (`AlertDialogComponent`, `ConfirmDialogComponent`) are usually not worth a capture — skip them with a note.
 
 Rules for this phase:
 - Re-deep-link between routes to reset state; don't let one screen's leftover state bleed into the next capture.
@@ -238,11 +227,7 @@ not input to the classification.
   native deps in `package.json`, warn the user that the installed dev build may not
   match both sides — JS-only diffs are the supported case. Proceed only if they accept.
   A change under `ios/` only affects the iOS side and one under `android/` only the
-  Android side, so say which platform's captures to distrust rather than both. For a
-  NativeScript app the native surface is `App_Resources/`, `nativescript.config.*` and
-  any `@nativescript/*` or plugin dependency — and since the JS ships inside the app,
-  **every** side needs its own `ns build`: rebuild and reinstall between base and head
-  instead of restarting Metro.
+  Android side, so say which platform's captures to distrust rather than both.
 - The project must have a clean tree (or the user agrees to `git stash`). Remember the
   original ref; **restore it at the end, always** — even after failures.
 
@@ -313,9 +298,7 @@ adb shell am broadcast -a com.android.systemui.demo -e command notifications -e 
 Then for each side in order **base → head**:
 
 1. `git checkout --detach <sha>`, restart Metro (kill the background process, start
-   again), and relaunch the app; verify a deep link renders the right revision. A
-   NativeScript app has no Metro: rebuild (`ns build ios` / `ns build android`),
-   reinstall, and relaunch instead.
+   again), and relaunch the app; verify a deep link renders the right revision.
 2. Capture only the suspect list for that side (`side: both|base` for base,
    `both|head` for head), Phase 4 style, into `<diffDir>/<side>/screens/<slug>.png`.
    Same waits, same 4b review discipline; verdicts go to
@@ -346,8 +329,6 @@ screenshots (dimmed) and changed screens flip base⇄head in place (hover for a 
 changed-pixels render).
 
 ## Web fallback (no simulator or emulator available, or user asks for web)
-
-Expo apps only — a NativeScript app has no web target, so without a simulator or emulator stop at `--static`.
 
 - Start `npx expo start --web`, confirm `http://localhost:8081/_sitemap` lists the same routes as the parse (good cross-check).
 - Capture each route that has a `urlPath` with `npx playwright screenshot --viewport-size=390,844 "http://localhost:8081<urlPath>" <project>/.screenmap/out/screens/<slug>.png` (needs `npx playwright install chromium` once; ask before installing).
