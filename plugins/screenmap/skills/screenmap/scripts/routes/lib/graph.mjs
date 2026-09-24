@@ -6,7 +6,7 @@
 // new one cannot quietly emit a graph the rest of the pipeline mishandles.
 
 export function normalize(fragment, ctx, { provider }) {
-  const routes = fragment.routes.map((r) => ({
+  const routes = fragment.routes.map((r) => withLink(r, ctx.config?.links)).map((r) => ({
     id: r.id,
     file: r.file ?? null,
     urlPath: r.urlPath ?? null,
@@ -65,6 +65,26 @@ export function normalize(fragment, ctx, { provider }) {
     orphanRoutes: orphans.length,
   }
   return { graph, orphans }
+}
+
+// .screenmap/config.json's routes.links: which routes the app's own URL handler
+// opens, for a framework with no linking config to read (NativeScript) or one
+// the parser reads wrong. Route id (or title) → the path after the scheme,
+// `true` for the route's own URL, `false` for none; "*" is the default for
+// routes not listed. Params in a link (`ask-mae/:id`) join the route's own so
+// the capture stage substitutes both. The root keeps its `/`: a launch shows it.
+function withLink(r, links) {
+  if (!links || typeof links !== 'object') return r
+  const title = r.title ?? r.urlPath ?? r.id
+  let v = links[r.id] ?? links['/' + r.id] ?? links[title]
+  if (v === undefined) v = links['*']
+  if (v === undefined) return r
+  let urlPath = r.urlPath ?? null
+  if (v === true) urlPath = title
+  else if (typeof v === 'string') urlPath = '/' + v.replace(/^\/+/, '')
+  else if (v === false || v === null) urlPath = urlPath === '/' ? '/' : null
+  const linkParams = (urlPath ?? '').split(/[?#]/)[0].split('/').filter((s) => s.startsWith(':')).map((s) => s.slice(1).replace(/\?$/, ''))
+  return { ...r, title, urlPath, params: [...new Set([...(r.params ?? []), ...linkParams])] }
 }
 
 // Provider-specific top-level keys (appDir, routesFile, navigationFile, …) ride

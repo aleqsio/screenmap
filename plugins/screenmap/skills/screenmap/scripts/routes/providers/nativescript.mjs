@@ -626,8 +626,6 @@ function parseAngular(ctx, files, ns) {
     }
   })
 
-  applyLinks(routes, ctx.config?.links)
-
   // ---------- resolution: a path someone navigates to → the route that renders ----------
 
   const byPath = new Map()
@@ -718,27 +716,6 @@ function parseAngular(ctx, files, ns) {
   }
 }
 
-// ---------- the routes.links overlay ----------
-
-// A deep link is whatever the app's own URL handler makes of it, so the
-// project says which routes have one. Params in the link (`ask-mae/:id`) join
-// the route's own so the capture stage substitutes both.
-function applyLinks(routes, links) {
-  if (!links || typeof links !== 'object') return
-  const star = links['*']
-  for (const r of routes) {
-    let v = links[r.id] ?? links['/' + r.id] ?? links[r.title]
-    if (v === undefined) v = star
-    if (v === true) r.urlPath = r.title
-    else if (typeof v === 'string') r.urlPath = '/' + v.replace(/^\/+/, '')
-    else if (v === false || v === null) r.urlPath = r.urlPath === '/' ? '/' : null
-    if (r.urlPath) {
-      const linkParams = r.urlPath.split(/[?#]/)[0].split('/').filter((s) => s.startsWith(':')).map((s) => s.slice(1).replace(/\?$/, ''))
-      r.params = [...new Set([...r.params, ...linkParams])]
-    }
-  }
-}
-
 // ---------- Core flavor: XML pages and Frame.navigate ----------
 
 const moduleOf = (s) => s.replace(/^~\/|^\.\/|^\//, '').replace(/\.(xml|ts|js)$/, '')
@@ -765,7 +742,6 @@ function parseCore(ctx, files, ns) {
       _code: code, _xml: xml,
     }
   })
-  applyLinks(routes, ctx.config?.links)
   const byId = new Map(routes.map((r) => [r.id, r]))
 
   const NAV_RE = /\b(navigate|showModal)\(\s*(?:\{[\s\S]*?\bmoduleName\s*:\s*(["'])([^"']+)\2|(["'])([^"']+)\4)/g
@@ -925,7 +901,6 @@ function parseComponents(ctx, files, ns, flavor) {
       _abs: file,
     }
   })
-  applyLinks(routes, ctx.config?.links)
 
   // A screen links to the components its own source, or a module it imports
   // one hop out, mounts, pushes or presents. Same fanout cap as every other

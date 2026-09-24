@@ -117,7 +117,7 @@ Angular Router gives every screen a URL *inside* the app
 (`/talk/(todayTab:today)`), but nothing says which of those a
 `myapp://…` link opens: a NativeScript app registers its scheme in
 `App_Resources` and maps URLs onto navigation in its own code. So the
-`nativescript` provider starts every route navigation-only and reads the map
+`nativescript` provider starts every route navigation-only and the map comes
 from `.screenmap/config.json`:
 
 ```jsonc
@@ -135,7 +135,10 @@ from `.screenmap/config.json`:
 
 Keys are route ids (the Angular path without the leading slash; the title
 with outlet notation also works). `"*": true` says the app's handler mirrors
-the router, so every route deep-links by its own URL. The app id, scheme and
+the router, so every route deep-links by its own URL. The overlay is applied
+by `normalize()` after whichever provider ran, so a react-navigation or custom
+map can use it too, to add a link the parser cannot see or drop a wrong one.
+The app id, scheme and
 name come from `nativescript.config.ts`, `App_Resources/iOS/Info.plist`
 (resolving `${BUNDLE_IDENTIFIER}`-style xcconfig variables) and
 `AndroidManifest.xml`, read by the provider's own `appConfig` hook.
