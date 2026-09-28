@@ -152,7 +152,7 @@ You need all four of these:
 
    The Action dispatches rather than mapping inline, because a full map takes roughly twenty minutes and waiting for it inside the PR job would bill that at the macOS rate for nothing. This needs `actions: write` on both workflows and a `workflow_dispatch` trigger on the baseline one, which the templates have. Set `auto_baseline: "false"` to have a PR report the missing baseline instead, and run it yourself through `workflow_dispatch`.
 
-In a monorepo, point the Action at the app with `project: apps/mobile`. On a private repo, set `publish: "false"`, because raw GitHub URLs are not anonymously readable there. The comment then links the workflow artifact, which you download and drop into the viewer yourself.
+In a monorepo, point the Action at the app with `project: apps/mobile`. Dependencies are installed from the nearest directory, up to the repo root, that has a lockfile: `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`, or `bun.lock` / `bun.lockb`. For bun, the Action uses a `bun` already on `PATH`, and otherwise sets one up with `oven-sh/setup-bun` at the version `packageManager` or `engines.bun` pins in that directory's `package.json` (the latest when neither does). On a private repo, set `publish: "false"`, because raw GitHub URLs are not anonymously readable there. The comment then links the workflow artifact, which you download and drop into the viewer yourself.
 
 ### What a PR run does, step by step
 
