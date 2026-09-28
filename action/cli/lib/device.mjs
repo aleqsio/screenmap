@@ -143,7 +143,11 @@ export async function openSession({ projectDir, config, scheme, platform = 'ios'
       return outPath
     },
     async relaunch() {
-      driver.terminate(id, appId); await sleep(800); driver.launch(id, appId); await sleep(4000)
+      // a dev client fetches its JS bundle from Metro again on every launch, and
+      // visit() opens its link before it waits: a link that arrives while the
+      // splash screen is still up is dropped and the app stays on its default
+      // route, so a slow bundle needs a longer waits.relaunch
+      driver.terminate(id, appId); await sleep(800); driver.launch(id, appId); await sleep(config.waits.relaunch ?? 4000)
       firstVisit = true // dev builds re-show their load-time toast after a relaunch
     },
     close() { metro.stop() },
