@@ -17,8 +17,6 @@
 //                      (EAS: reuse-by-fingerprint or build)
 //   screenmap-ci merge --inputs ios=a.scrmap,android=b.scrmap --out combined.scrmap
 //                      fold per-platform baselines into one multi-platform map
-//   screenmap-ci shot  --map <file.scrmap> [--changes <file.diff.scrmap>] [--out <png>] [--mode all|captured|changed] [--viewer <url>]
-//                      render the map in the viewer through headless Chrome
 //
 // baseline and pr capture on every platform in config.platforms (default
 // ["ios"]); --platform <name> narrows a run to one of them, which is how the
@@ -30,6 +28,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { parseArgs, loadConfig, platformConfig, readJson, writeJson, ensureDir, exists, log, sh, sleep, deepLinkFor } from './lib/util.mjs'
 import { openSession } from './lib/device.mjs'
+import { runtimeFor } from './lib/runtime.mjs'
 import { readBaseline, parseRoutes, computeSuspects, packBaseline, packDiff, downscaleAll, baselineSide, platformsIn } from './lib/bundle.mjs'
 import { loadFlows, replayFlow, verifyLanding, verifyDeepLink } from './lib/replay.mjs'
 import { argentAvailable, argentVersion } from './lib/argent.mjs'
@@ -55,7 +54,7 @@ const copyShots = (fromDir, toDir, slug) => {
 // Capture a list of routes on the live session: committed flow replay first,
 // deep link otherwise, agent for what's left (budgeted). Shared by both jobs.
 async function captureRoutes({ project, config, scheme, session, routes, flows, outDir, work, agentMode, prContext, agentEnabled }) {
-  const result = { replay: [], deeplink: [], agent: [], failed: [], unflowed: [], drifted: [], unverified: [], navigationOnly: [] }
+  const result = { replay: [], deeplink: [], launch: [], agent: [], failed: [], unflowed: [], drifted: [], unverified: [], navigationOnly: [] }
   const canReplay = flows.size > 0 && argentAvailable()
   if (flows.size > 0 && !canReplay) log('argent not available — committed flows will not be replayed this run')
   for (const r of routes) {
@@ -91,14 +90,14 @@ async function captureRoutes({ project, config, scheme, session, routes, flows, 
         await session.relaunch()
       }
     }
-    if (!done && r.urlPath === '/' && !scheme) {
+    if (!done && r.urlPath === '/' && !scheme && session.runtime.launchShowsRoot) {
       // An app with no URL scheme still has one screen a deterministic run can
       // reach: whatever launching it shows.
       try {
         await session.relaunch()
         await sleep(config.waits.boot)
         session.screenshot(path.join(outDir, `${r.slug}.png`))
-        result.deeplink.push(r.id)
+        result.launch.push(r.id)
         log(`captured ${r.id} by launching the app (no URL scheme)`)
         if (!f) result.unflowed.push(r)
       } catch (e) {
@@ -175,7 +174,7 @@ async function captureRoutes({ project, config, scheme, session, routes, flows, 
     const screens = candidates.map((r) => ({ id: r.id, urlPath: r.urlPath, slug: r.slug, file: r.file, deepLink: deepLinkFor(scheme, r, config.params), reason: r.reason }))
     if (extra.length) log(`effort=${config.effort} (scan=${scan}): ${result.unflowed.length} flowless + ${extra.length} re-checked`)
     const a = runAgent({
-      projectDir: project, config, screens, scheme, udid: session.id, bundleId: session.appId,
+      projectDir: project, config, screens, scheme, runtime: session.runtime, udid: session.id, bundleId: session.appId,
       platform: session.platform, deviceName: session.deviceName,
       outScreensDir: path.join(agentDir, 'screens'), outFlowsDir: path.join(agentDir, 'flows'),
       notesPath: path.join(agentDir, 'notes.json'), summaryPath: path.join(agentDir, 'summary.json'),
@@ -207,8 +206,12 @@ async function baseline() {
   const work = path.join(project, '.screenmap', 'out', 'ci', 'baseline')
   fs.rmSync(work, { recursive: true, force: true }); ensureDir(work)
   const graph = parseRoutes(project, path.join(work, 'graph.json'))
+  const runtime = runtimeFor(config, graph)
   const scheme = config.scheme ?? graph.scheme ?? null
-  if (!scheme) log('no URL scheme in the app or .screenmap/config.json — only the root screen, committed flows and the agent can capture anything')
+  if (!scheme) {
+    if (runtime.requiresScheme) throw new Error('no deep-link scheme: set scheme in .screenmap/config.json')
+    log('no URL scheme in the app or .screenmap/config.json — only the root screen, committed flows and the agent can capture anything')
+  }
   const commit = opts.commit ?? git(['rev-parse', 'HEAD'], project)
   const ref = opts.ref ?? git(['rev-parse', '--abbrev-ref', 'HEAD'], project)
   const appName = config.appName ?? graph.appName ?? path.basename(project)
@@ -260,10 +263,10 @@ async function baseline() {
     if (opts.only) { const only = new Set(String(opts.only).split(',')); routes = routes.filter((r) => only.has(r.id)) }
     if (opts.limit) routes = routes.slice(0, Number(opts.limit))
 
-    let cap = { replay: [], deeplink: [], agent: [], failed: [], unflowed: [] }
+    let cap = { replay: [], deeplink: [], launch: [], agent: [], failed: [], unflowed: [] }
     let deviceName = pc.device
     if (routes.length && !opts['no-sim']) {
-      const session = await openSession({ projectDir: project, config: pc, scheme, platform })
+      const session = await openSession({ projectDir: project, config: pc, scheme, platform, runtime })
       deviceName = session.deviceName
       try {
         cap = await captureRoutes({ project, config: pc, scheme, session, routes, flows, outDir: screensDir, work: path.join(work, platform), agentMode: 'baseline', agentEnabled: !opts['no-agent'] })
@@ -286,7 +289,7 @@ async function baseline() {
     reused: sum((s) => s.reused),
     platforms: sides.map((s) => ({
       platform: s.platform, device: s.device, reused: s.reused,
-      captured: { replay: s.cap.replay.length, deeplink: s.cap.deeplink.length, agent: s.cap.agent.length, failed: s.cap.failed },
+      captured: { replay: s.cap.replay.length, deeplink: s.cap.deeplink.length, launch: s.cap.launch.length, agent: s.cap.agent.length, failed: s.cap.failed },
       unflowed: s.cap.unflowed.map((r) => r.id), drifted: s.cap.drifted ?? [], agent: s.cap.agentRun ?? { ran: false },
     })),
     // the first platform stays the headline one so existing consumers (the PR
@@ -294,7 +297,7 @@ async function baseline() {
     device: sides.map((s) => s.device).filter(Boolean).join(' · ') || null,
     argent: argentVersion(), ocr: ocrBackend(),
     captured: {
-      replay: sum((s) => s.cap.replay.length), deeplink: sum((s) => s.cap.deeplink.length),
+      replay: sum((s) => s.cap.replay.length), deeplink: sum((s) => s.cap.deeplink.length), launch: sum((s) => s.cap.launch.length),
       agent: sum((s) => s.cap.agent.length), failed: sides.flatMap((s) => s.cap.failed),
     },
     unflowed: [...new Set(sides.flatMap((s) => s.cap.unflowed.map((r) => r.id)))],
@@ -313,6 +316,7 @@ async function pr() {
   fs.rmSync(work, { recursive: true, force: true }); ensureDir(work)
   const base = readBaseline(opts.baseline, path.join(work, 'base-bundle'))
   const headGraph = parseRoutes(project, path.join(work, 'head-graph.json'))
+  const runtime = runtimeFor(config, headGraph)
   const scheme = config.scheme ?? headGraph.scheme ?? base.graph.scheme
   const baseSha = opts.base ?? base.manifest.source?.commit ?? null
   const headSha = opts.head ?? git(['rev-parse', 'HEAD'], project)
@@ -346,11 +350,11 @@ async function pr() {
     baseStatusByPlatform[platform] = baseSubset
 
     // head side: capture suspects on the PR head
-    let cap = { replay: [], deeplink: [], agent: [], failed: [], unflowed: [] }
+    let cap = { replay: [], deeplink: [], launch: [], agent: [], failed: [], unflowed: [] }
     let deviceName = pc.device
     const headScreens = path.join(diffDir, 'head', 'screens', ...sub)
     if (headRoutes.length && !opts['no-sim']) {
-      const session = await openSession({ projectDir: project, config: pc, scheme, platform })
+      const session = await openSession({ projectDir: project, config: pc, scheme, platform, runtime })
       deviceName = session.deviceName
       try {
         cap = await captureRoutes({
@@ -382,12 +386,12 @@ async function pr() {
     argent: argentVersion(), ocr: ocrBackend(),
     platforms: sides.map((s) => ({
       platform: s.platform, device: s.device,
-      captured: { replay: s.cap.replay.length, deeplink: s.cap.deeplink.length, agent: s.cap.agent.length, failed: s.cap.failed },
+      captured: { replay: s.cap.replay.length, deeplink: s.cap.deeplink.length, launch: s.cap.launch.length, agent: s.cap.agent.length, failed: s.cap.failed },
       drifted: s.cap.drifted ?? [], unverified: s.cap.unverified ?? [], agent: s.cap.agentRun ?? { ran: false },
     })),
     suspects: { added: suspects.capture.filter((c) => c.status === 'A').length, modified: suspects.capture.filter((c) => c.status === 'M').length, removed: suspects.capture.filter((c) => c.status === 'D').length, broadFiles: suspects.broadFiles },
     captured: {
-      replay: sum((s) => s.cap.replay.length), deeplink: sum((s) => s.cap.deeplink.length),
+      replay: sum((s) => s.cap.replay.length), deeplink: sum((s) => s.cap.deeplink.length), launch: sum((s) => s.cap.launch.length),
       agent: sum((s) => s.cap.agent.length), failed: sides.flatMap((s) => s.cap.failed),
     },
     agent: sides[0].cap.agentRun ?? { ran: false },
@@ -587,7 +591,7 @@ function renderComment(s, { mapUrl, changesUrl, artifactUrl, shotUrl, shotsBase,
     else if (a.keyEnv === null && a.hasKey === null) agentDesc += ' · no LLM key configured'
   }
   const foot = [
-    `Captured on ${s.device ?? 'simulator'}${s.platforms?.length > 1 ? ` (${s.platforms.map((p) => p.platform).join(' + ')})` : ''}: ${s.captured.replay} by flow replay${s.argent ? ` (argent ${s.argent})` : ''}, ${s.captured.deeplink} by deep link, ${s.captured.agent} by agent (${agentDesc}).`,
+    `Captured on ${s.device ?? 'simulator'}${s.platforms?.length > 1 ? ` (${s.platforms.map((p) => p.platform).join(' + ')})` : ''}: ${s.captured.replay} by flow replay${s.argent ? ` (argent ${s.argent})` : ''}, ${s.captured.deeplink} by deep link, ${s.captured.launch ? `${s.captured.launch} by launching the app, ` : ''}${s.captured.agent} by agent (${agentDesc}).`,
     // tesseract reads roughly two thirds of the words Vision does, which makes
     // a drift or verification warning likelier to be the OCR's fault than the
     // app's. Say which backend read the screens whenever it is not Vision.
@@ -729,7 +733,7 @@ async function flowsPr() {
 async function shot() {
   const { takeShot } = await import('./lib/shot.mjs')
   const out = path.resolve(opts.out ?? 'screenmap-shot.png')
-  await takeShot({ mapFile: path.resolve(opts.map), changesFile: opts.changes ? path.resolve(opts.changes) : null, out, mode: opts.mode || undefined, viewer: opts.viewer || undefined })
+  await takeShot({ mapFile: path.resolve(opts.map), changesFile: opts.changes ? path.resolve(opts.changes) : null, out, viewer: opts.viewer || undefined })
   console.log(JSON.stringify({ shot: out }))
 }
 

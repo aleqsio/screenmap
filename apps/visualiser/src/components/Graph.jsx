@@ -15,18 +15,8 @@ const nodeTypes = { screen: ScreenNode }
 // ?shot — headless-screenshot mode: no chrome, no comparator flip (head side
 // frozen), viewport fitted to the changed nodes; window.__screenmapShotReady
 // flips when the frame is worth capturing. Used by screenmap-ci to render the
-// PR-comment image. ?shot=captured also drops every screen without a good
-// capture, so a map whose deterministic lane reached only part of the app
-// shows the screens it has rather than a wall of placeholders.
-const SHOT_PARAM = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('shot') : null
-const SHOT = SHOT_PARAM !== null
-const SHOT_CAPTURED = SHOT_PARAM === 'captured'
-
-function capturedOnly(map) {
-  const nodes = map.nodes.filter((n) => n.capture?.screenshot && (n.capture.status ?? 'ok') === 'ok')
-  const ids = new Set(nodes.map((n) => n.id))
-  return { ...map, nodes, edges: map.edges.filter((e) => ids.has(e.from) && ids.has(e.to)) }
-}
+// PR-comment image.
+const SHOT = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('shot')
 
 function hueFor(group) {
   let h = 0
@@ -44,8 +34,7 @@ function statusBadge(node) {
 const HIDDEN_STEPS = ['wait', 'screenshot']
 
 export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, platforms, platform, setPlatform, onOpenBuffer, onCloseChanges }) {
-  const { manifest, map: fullMap, images, diff } = bundle
-  const map = useMemo(() => (SHOT_CAPTURED ? capturedOnly(fullMap) : fullMap), [fullMap])
+  const { manifest, map, images, diff } = bundle
   const diffMode = mode === 'changes' && !!diff
   const [positions, setPositions] = useState(null)
   const [selectedFlow, setSelectedFlow] = useState(null)

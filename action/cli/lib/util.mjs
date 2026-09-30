@@ -87,15 +87,6 @@ const PLATFORM_DEFAULTS = {
   android: { device: null, appId: null, appPath: null },
 }
 
-// How the app's JavaScript reaches the device. An Expo dev client loads its
-// bundle from Metro over the network; a NativeScript app ships the bundle
-// inside the .app/.apk, so launching it is the whole boot.
-export const RUNTIMES = ['expo', 'nativescript']
-export function detectRuntime(projectDir) {
-  const ns = ['nativescript.config.ts', 'nativescript.config.js', 'nativescript.config.mjs', 'nativescript.config.cjs', 'nsconfig.json']
-  return ns.some((f) => fs.existsSync(path.join(projectDir, f))) ? 'nativescript' : 'expo'
-}
-
 export function loadConfig(projectDir) {
   const base = {
     scheme: null, bundleId: null, appPath: null, device: null, metroPort: 8081,
@@ -129,8 +120,6 @@ export function loadConfig(projectDir) {
     routes: { ...defaults.routes, ...(user.routes ?? {}) },
   }
   if (process.env.AGENT_MAX_SCREENS) merged.agent.maxScreens = Number(process.env.AGENT_MAX_SCREENS) || merged.agent.maxScreens
-  merged.runtime = user.runtime ?? detectRuntime(projectDir)
-  if (!RUNTIMES.includes(merged.runtime)) throw new Error(`unknown runtime "${merged.runtime}" — expected ${RUNTIMES.join(' | ')}`)
 
   // platforms: env wins, then config.platforms, then the legacy single-platform
   // default. An unknown name is a typo worth failing on rather than silently

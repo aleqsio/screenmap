@@ -104,7 +104,7 @@ const PLATFORM_BRIEF = {
   },
 }
 
-export function runAgent({ projectDir, config, screens, scheme, udid, bundleId, platform = 'ios', deviceName, outScreensDir, outFlowsDir, notesPath, summaryPath, mode, prContext }) {
+export function runAgent({ projectDir, config, screens, scheme, runtime, udid, bundleId, platform = 'ios', deviceName, outScreensDir, outFlowsDir, notesPath, summaryPath, mode, prContext }) {
   const info = agentInfo(config)
   if (!screens.length) return { ran: false, reason: 'nothing to explore', ...info }
   if (!config.agent.enabled) return { ran: false, reason: config.effort === 'deterministic' ? 'effort=deterministic — flows replay, nothing is re-checked' : 'agent disabled in .screenmap/config.json', ...info }
@@ -122,7 +122,7 @@ export function runAgent({ projectDir, config, screens, scheme, udid, bundleId, 
   const brief = PLATFORM_BRIEF[platform] ?? PLATFORM_BRIEF.ios
   const device = deviceName ?? config.device ?? brief.device
 
-  const prompt = `You are running the screenmap skill's capture phases headlessly in CI on ${platform.toUpperCase()} (no simulator MCP — use ${brief.cli} and the \`argent\` CLI for taps/swipes: \`argent run <tool> …\` (\`argent tools\` lists them; its device tools take this ${brief.device}'s id directly; if \`argent\` is not on PATH, run \`npx -y @swmansion/argent@0.21.0\` from a directory OUTSIDE the project, e.g. /tmp, because this repo's devEngines pin breaks npx inside it)). The app is already running on ${brief.device} ${udid} (${brief.appId} ${bundleId}, ${scheme ? `scheme ${scheme}://` : 'no URL scheme — every screen is reached by tapping from launch'})${config.runtime === 'nativescript' ? ' with its JS bundled inside (a NativeScript app: no Metro, no dev client)' : ', Metro is up'}. Do not rebuild, reinstall, or checkout anything.
+  const prompt = `You are running the screenmap skill's capture phases headlessly in CI on ${platform.toUpperCase()} (no simulator MCP — use ${brief.cli} and the \`argent\` CLI for taps/swipes: \`argent run <tool> …\` (\`argent tools\` lists them; its device tools take this ${brief.device}'s id directly; if \`argent\` is not on PATH, run \`npx -y @swmansion/argent@0.21.0\` from a directory OUTSIDE the project, e.g. /tmp, because this repo's devEngines pin breaks npx inside it)). The app is already running on ${brief.device} ${udid} (${brief.appId} ${bundleId}, ${scheme ? `scheme ${scheme}://` : 'no URL scheme — every screen is reached by tapping from launch'})${runtime.agentNote}. Do not rebuild, reinstall, or checkout anything.
 
 Deep link:  ${scheme ? brief.deepLink(udid, `${scheme}://some/path`) : 'none — this app registers no URL scheme'}
 Screenshot: ${brief.shot(udid, `${outScreensDir}/<slug>.png`)}
