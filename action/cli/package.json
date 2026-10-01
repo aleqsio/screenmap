@@ -4,10 +4,14 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Deterministic core of the screenmap GitHub Action: baseline refresh, PR diff, publish, comment.",
+  "scripts": {
+    "test": "node --test"
+  },
   "bin": {
     "screenmap-ci": "./screenmap-ci.mjs"
   },
   "dependencies": {
+    "@typesafe-ai/sdk": "0.6.0",
     "puppeteer-core": "^25.9.0",
     "yaml": "^2.9.0"
   }

@@ -68,8 +68,10 @@ export const EFFORTS = {
 // lane; PROVIDERS builds its keyEnv from this. opencode authenticates through
 // whichever provider it was configured for, so there is nothing to look for.
 export const PROVIDER_KEY_ENVS = {
-  claude: 'ANTHROPIC_API_KEY', codex: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', opencode: null,
+  claude: 'ANTHROPIC_API_KEY', codex: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', opencode: null, jev: 'ANTHROPIC_API_KEY',
 }
+
+export const CLASSIFIER_KEY_ENVS = { jev: 'TYPESAFE_API_KEY' }
 
 // Is there a key for the provider this run would use? A custom agent.command
 // brings its own auth, and opencode has no fixed variable, so both count as
@@ -78,6 +80,8 @@ function agentKeyPresent(user) {
   if (user.agent?.command) return true
   const name = process.env.AGENT_PROVIDER || user.agent?.provider || 'claude'
   const keyEnv = user.agent?.keyEnv ?? PROVIDER_KEY_ENVS[name]
+  const classifierEnv = CLASSIFIER_KEY_ENVS[name]
+  if (classifierEnv && !(process.env[classifierEnv] || process.env.CLASSIFIER_API_KEY)) return false
   if (keyEnv === null || keyEnv === undefined) return true
   return !!(process.env[keyEnv] || process.env.AGENT_API_KEY)
 }

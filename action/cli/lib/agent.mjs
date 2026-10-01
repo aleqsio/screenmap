@@ -8,7 +8,8 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { PROVIDER_KEY_ENVS, ensureDir, log, readJson } from './util.mjs'
+import { CLASSIFIER_KEY_ENVS, PROVIDER_KEY_ENVS, ensureDir, log, readJson } from './util.mjs'
+import { runJev } from './jev.mjs'
 
 export const SKILL_DIR = path.resolve(new URL('../../../plugins/screenmap/skills/screenmap', import.meta.url).pathname)
 
@@ -50,6 +51,7 @@ export const PROVIDERS = {
       return a
     },
   },
+  jev: { keyEnv: PROVIDER_KEY_ENVS.jev, classifierKeyEnv: CLASSIFIER_KEY_ENVS.jev, run: runJev },
 }
 
 // AGENT_PROVIDER env (set by the Action input) beats config.agent.provider;
@@ -66,6 +68,7 @@ export function resolveProvider(config) {
 
 export function providerAvailable(p) {
   if (p.custom) return true // arbitrary shell — trust the config
+  if (p.run) return true
   const r = spawnSync(p.bin, ['--version'], { encoding: 'utf8' })
   return r.status === 0 || !!(r.stdout || '').trim()
 }
@@ -104,7 +107,7 @@ const PLATFORM_BRIEF = {
   },
 }
 
-export function runAgent({ projectDir, config, screens, scheme, runtime, udid, bundleId, platform = 'ios', deviceName, outScreensDir, outFlowsDir, notesPath, summaryPath, mode, prContext }) {
+export async function runAgent({ projectDir, config, screens, scheme, runtime, session, udid, bundleId, platform = 'ios', deviceName, outScreensDir, outFlowsDir, notesPath, summaryPath, mode, prContext }) {
   const info = agentInfo(config)
   if (!screens.length) return { ran: false, reason: 'nothing to explore', ...info }
   if (!config.agent.enabled) return { ran: false, reason: config.effort === 'deterministic' ? 'effort=deterministic — flows replay, nothing is re-checked' : 'agent disabled in .screenmap/config.json', ...info }
@@ -121,6 +124,14 @@ export function runAgent({ projectDir, config, screens, scheme, runtime, udid, b
 
   const brief = PLATFORM_BRIEF[platform] ?? PLATFORM_BRIEF.ios
   const device = deviceName ?? config.device ?? brief.device
+
+  log(`agent (${provider.name}, ${platform}): exploring ${budgeted.length} screen(s)${skipped.length ? `, ${skipped.length} over budget` : ''}`)
+  if (provider.run) {
+    const classifierKey = process.env[provider.classifierKeyEnv] || process.env.CLASSIFIER_API_KEY
+    if (!classifierKey) return { ran: false, reason: `${provider.name} needs classifier_api_key (${provider.classifierKeyEnv}) as well as agent_api_key`, ...info }
+    const summary = await provider.run({ screens: budgeted, config, apiKey: env[provider.keyEnv], classifierKey, session, scheme, bundleId, platform, deviceName: device, outScreensDir, outFlowsDir, summaryPath })
+    return { ran: true, ...info, exit: 0, summary, overBudget: skipped.map((s) => s.id), transcript: '' }
+  }
 
   const prompt = `You are running the screenmap skill's capture phases headlessly in CI on ${platform.toUpperCase()} (no simulator MCP — use ${brief.cli} and the \`argent\` CLI for taps/swipes: \`argent run <tool> …\` (\`argent tools\` lists them; its device tools take this ${brief.device}'s id directly; if \`argent\` is not on PATH, run \`npx -y @swmansion/argent@0.21.0\` from a directory OUTSIDE the project, e.g. /tmp, because this repo's devEngines pin breaks npx inside it)). The app is already running on ${brief.device} ${udid} (${brief.appId} ${bundleId}, ${scheme ? `scheme ${scheme}://` : 'no URL scheme — every screen is reached by tapping from launch'})${runtime.agentNote}. Do not rebuild, reinstall, or checkout anything.
 
@@ -140,7 +151,6 @@ Rules:
 5. Write ${summaryPath}: JSON { "captured": [routeIds], "skipped": [{ "id", "why" }], "flows": [flow names] } when done.
 6. Budget: these ${budgeted.length} screens only. Be economical — no broad exploration.${prContext ? `\n\nPR context: ${prContext}` : ''}`
 
-  log(`agent (${provider.name}, ${platform}): exploring ${budgeted.length} screen(s)${skipped.length ? `, ${skipped.length} over budget` : ''}`)
   let r
   if (provider.custom) {
     // custom command template: {promptFile} is substituted; the prompt is also

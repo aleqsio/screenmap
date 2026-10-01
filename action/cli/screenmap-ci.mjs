@@ -63,7 +63,7 @@ const copyShots = (fromDir, toDir, slug) => {
 
 // Capture a list of routes on the live session: committed flow replay first,
 // deep link otherwise, agent for what's left (budgeted). Shared by both jobs.
-async function captureRoutes({ project, config, scheme, session, routes, flows, outDir, work, agentMode, prContext, agentEnabled }) {
+async function captureRoutes({ project, config, scheme, session, routes, edges, flows, outDir, work, agentMode, prContext, agentEnabled }) {
   const result = { replay: [], deeplink: [], launch: [], agent: [], failed: [], unflowed: [], drifted: [], unverified: [], navigationOnly: [] }
   const canReplay = flows.size > 0 && argentAvailable()
   if (flows.size > 0 && !canReplay) log('argent not available — committed flows will not be replayed this run')
@@ -181,10 +181,17 @@ async function captureRoutes({ project, config, scheme, session, routes, flows, 
   ]
   if (agentEnabled && candidates.length) {
     const agentDir = ensureDir(path.join(work, 'agent'))
-    const screens = candidates.map((r) => ({ id: r.id, urlPath: r.urlPath, slug: r.slug, file: r.file, deepLink: deepLinkFor(scheme, r, config.params), reason: r.reason }))
+    const screens = candidates.map((r) => {
+      const f = flows.get(r.id)
+      return {
+        id: r.id, title: r.title, urlPath: r.urlPath, slug: r.slug, file: r.file, deepLink: deepLinkFor(scheme, r, config.params), reason: r.reason,
+        landmarks: (f?.nav ?? f?.visit)?.meta.landmarks ?? null,
+        incoming: edges.filter((e) => e.to === r.id).map((e) => ({ from: e.from, link: e.raw })),
+      }
+    })
     if (extra.length) log(`effort=${config.effort} (scan=${scan}): ${result.unflowed.length} flowless + ${extra.length} re-checked`)
-    const a = runAgent({
-      projectDir: project, config, screens, scheme, runtime: session.runtime, udid: session.id, bundleId: session.appId,
+    const a = await runAgent({
+      projectDir: project, config, screens, scheme, runtime: session.runtime, session, udid: session.id, bundleId: session.appId,
       platform: session.platform, deviceName: session.deviceName,
       outScreensDir: path.join(agentDir, 'screens'), outFlowsDir: path.join(agentDir, 'flows'),
       notesPath: path.join(agentDir, 'notes.json'), summaryPath: path.join(agentDir, 'summary.json'),
@@ -279,7 +286,7 @@ async function baseline() {
       const session = await openSession({ projectDir: project, config: pc, scheme, platform, runtime })
       deviceName = session.deviceName
       try {
-        cap = await captureRoutes({ project, config: pc, scheme, session, routes, flows, outDir: screensDir, work: path.join(work, platform), agentMode: 'baseline', agentEnabled: !opts['no-agent'] })
+        cap = await captureRoutes({ project, config: pc, scheme, session, routes, edges: graph.edges, flows, outDir: screensDir, work: path.join(work, platform), agentMode: 'baseline', agentEnabled: !opts['no-agent'] })
       } finally { session.close() }
     }
     for (const id of cap.failed) captureStatus[id] = { status: 'missing', note: `deep link failed in CI (${platform})` }
@@ -368,7 +375,7 @@ async function pr() {
       deviceName = session.deviceName
       try {
         cap = await captureRoutes({
-          project, config: pc, scheme, session, routes: headRoutes, flows, outDir: headScreens, work: path.join(work, platform),
+          project, config: pc, scheme, session, routes: headRoutes, edges: headGraph.edges, flows, outDir: headScreens, work: path.join(work, platform),
           agentMode: 'pr', agentEnabled: !opts['no-agent'], prContext,
         })
       } finally { session.close() }
