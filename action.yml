@@ -356,6 +356,12 @@ runs:
         SCREENMAP_DEVICE_IOS: ${{ env.SIM_UDID || inputs.simulator }}
         SCREENMAP_DEVICE_ANDROID: ${{ inputs.avd }}
         GH_TOKEN: ${{ inputs.github_token }}
+        # PR fields the PR author controls reach the script as variables, never
+        # as text pasted into it: a title like `"; curl … | sh; "` would run
+        PR_TITLE: ${{ github.event.pull_request.title }}
+        PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        BASELINE_FOUND: ${{ steps.baseline.outputs.found }}
       run: |
         set -e
         # install the chosen agent CLI on demand; a custom agent.command must be preinstalled by the workflow
@@ -372,7 +378,7 @@ runs:
         proj="${{ inputs.project }}"
         mkdir -p "$proj/.screenmap" && [ -f "$proj/.screenmap/config.json" ] || true
         if [ "${{ inputs.mode }}" = "pr" ]; then
-          if [ "${{ steps.baseline.outputs.found }}" != "true" ]; then
+          if [ "$BASELINE_FOUND" != "true" ]; then
             # The baseline is a prerequisite we can satisfy ourselves. Start it
             # on the default branch rather than telling the reader to go and
             # click it. We dispatch instead of mapping inline: a full map is
@@ -433,11 +439,11 @@ runs:
           git fetch --depth 1 origin "${{ github.event.pull_request.base.sha }}" || true
           screenmap-ci pr --project "$proj" --baseline .screenmap-ci/baseline.scrmap \
             --base "${{ github.event.pull_request.base.sha }}" --head "${{ github.event.pull_request.head.sha }}" \
-            --pr "${{ github.event.pull_request.number }}" --title "${{ github.event.pull_request.title }}" --url "${{ github.event.pull_request.html_url }}" \
-            --base-ref "${{ github.event.pull_request.base.ref }}" --head-ref "${{ github.event.pull_request.head.ref }}" > .screenmap-ci/summary.json
+            --pr "${{ github.event.pull_request.number }}" --title "$PR_TITLE" --url "${{ github.event.pull_request.html_url }}" \
+            --base-ref "$PR_BASE_REF" --head-ref "$PR_HEAD_REF" > .screenmap-ci/summary.json
         else
           screenmap-ci baseline --project "$proj" \
-            $( [ "${{ steps.baseline.outputs.found }}" = "true" ] && echo "--previous .screenmap-ci/baseline.scrmap" ) \
+            $( [ "$BASELINE_FOUND" = "true" ] && echo "--previous .screenmap-ci/baseline.scrmap" ) \
             $( [ "${{ inputs.full }}" = "true" ] && echo "--full" ) > .screenmap-ci/summary.json
         fi
         bundle=$(python3 -c 'import json;print(json.load(open(".screenmap-ci/summary.json"))["bundle"])')
@@ -469,9 +475,10 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
+        BUNDLE: ${{ steps.run.outputs.bundle }}
       run: |
         set -e
-        bundle="${{ steps.run.outputs.bundle }}"
+        bundle="$BUNDLE"
         if [ "${{ inputs.mode }}" = "pr" ]; then
           dest="pr-${{ github.event.pull_request.number }}/${{ github.event.pull_request.head.sha }}.diff.scrmap"
           files="$bundle=$dest"
@@ -503,13 +510,14 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.github_token }}
+        MAP_URL: ${{ steps.publish.outputs.map_url }}
+        CHANGES_URL: ${{ steps.publish.outputs.changes_url }}
+        SHOTS_BASE: ${{ steps.publish.outputs.shots_base }}
       run: |
         artifact_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts"
         screenmap-ci comment --summary .screenmap-ci/summary.json --post --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" \
           --viewer "${{ inputs.viewer_url }}" --artifact-url "$artifact_url" \
-          $( [ -n "${{ steps.publish.outputs.map_url }}" ] && echo --map-url "${{ steps.publish.outputs.map_url }}" ) \
-          $( [ -n "${{ steps.publish.outputs.changes_url }}" ] && echo --changes-url "${{ steps.publish.outputs.changes_url }}" ) \
-          $( [ -n "${{ steps.publish.outputs.shots_base }}" ] && echo --shots-base "${{ steps.publish.outputs.shots_base }}" )
+          ${MAP_URL:+--map-url "$MAP_URL"} ${CHANGES_URL:+--changes-url "$CHANGES_URL"} ${SHOTS_BASE:+--shots-base "$SHOTS_BASE"}
 
     - name: Open flows PR
       if: inputs.mode == 'baseline' && inputs.flows_pr == 'true' && steps.run.outputs.bundle != ''

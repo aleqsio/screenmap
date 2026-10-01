@@ -70,7 +70,7 @@ export function parse(ctx) {
 
   const layoutsByDir = {}
   for (const l of layoutEntries) {
-    const src = fs.readFileSync(l.abs, 'utf8')
+    const src = ctx.readFileOrNull(l.abs) ?? ''
     const nav = src.match(/<\s*(NativeTabs|Tabs|Stack|Drawer|Slot)\b/)
     layoutsByDir[l.dir] = { file: rel(l.abs), dir: l.dir, navigator: nav ? nav[1] : null, src }
   }
@@ -113,7 +113,7 @@ export function parse(ctx) {
     const presentation =
       presentations.find((p) => e.noExt === p.prefix || e.noExt.startsWith(p.prefix + '/'))
         ?.presentation ?? null
-    const src = fs.readFileSync(e.abs, 'utf8')
+    const src = ctx.readFileOrNull(e.abs) ?? ''
     const stateHints = extractHints(src)
     if (presentation && /modal/i.test(presentation))
       stateHints.push({ type: 'router-modal', presentation })

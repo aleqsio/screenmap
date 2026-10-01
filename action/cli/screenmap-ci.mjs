@@ -26,7 +26,7 @@
 // simulator or emulator. See docs/ci.md.
 import fs from 'node:fs'
 import path from 'node:path'
-import { parseArgs, loadConfig, platformConfig, readJson, writeJson, ensureDir, exists, log, sh, deepLinkFor } from './lib/util.mjs'
+import { parseArgs, loadConfig, platformConfig, readJson, writeJson, ensureDir, exists, log, sh, deepLinkFor, validScheme, fileSafe } from './lib/util.mjs'
 import { openSession } from './lib/device.mjs'
 import { readBaseline, parseRoutes, computeSuspects, packBaseline, packDiff, downscaleAll, baselineSide, platformsIn } from './lib/bundle.mjs'
 import { loadFlows, replayFlow, verifyLanding, verifyDeepLink } from './lib/replay.mjs'
@@ -200,7 +200,7 @@ async function baseline() {
   const work = path.join(project, '.screenmap', 'out', 'ci', 'baseline')
   fs.rmSync(work, { recursive: true, force: true }); ensureDir(work)
   const graph = parseRoutes(project, path.join(work, 'graph.json'))
-  const scheme = config.scheme ?? graph.scheme
+  const scheme = validScheme(config.scheme ?? graph.scheme)
   if (!scheme) throw new Error('no deep-link scheme: set scheme in .screenmap/config.json')
   const commit = opts.commit ?? git(['rev-parse', 'HEAD'], project)
   const ref = opts.ref ?? git(['rev-parse', '--abbrev-ref', 'HEAD'], project)
@@ -267,7 +267,7 @@ async function baseline() {
     sides.push({ platform, device: deviceName, screensDir, cap, captureStatus, reused })
   }
 
-  const out = path.resolve(opts.out ?? path.join(work, `${appName}-${(commit ?? 'local').slice(0, 7)}.scrmap`))
+  const out = path.resolve(opts.out ?? path.join(work, `${fileSafe(appName)}-${(commit ?? 'local').slice(0, 7)}.scrmap`))
   packBaseline({
     graph, flowsDir: flowsDirForPack, appName, commit, ref, out,
     platforms: sides.map((s) => ({ platform: s.platform, device: s.device, screensDir: s.screensDir })),
@@ -306,7 +306,7 @@ async function pr() {
   fs.rmSync(work, { recursive: true, force: true }); ensureDir(work)
   const base = readBaseline(opts.baseline, path.join(work, 'base-bundle'))
   const headGraph = parseRoutes(project, path.join(work, 'head-graph.json'))
-  const scheme = config.scheme ?? headGraph.scheme ?? base.graph.scheme
+  const scheme = validScheme(config.scheme ?? headGraph.scheme ?? base.graph.scheme)
   const baseSha = opts.base ?? base.manifest.source?.commit ?? null
   const headSha = opts.head ?? git(['rev-parse', 'HEAD'], project)
   const appName = config.appName ?? headGraph.appName ?? base.manifest.app?.name ?? path.basename(project)
@@ -364,7 +364,7 @@ async function pr() {
   writeJson(path.join(diffDir, 'base', 'capture-status.json'), multi ? baseStatusByPlatform : baseStatusByPlatform[platforms[0]])
   writeJson(path.join(diffDir, 'head', 'capture-status.json'), multi ? headStatusByPlatform : headStatusByPlatform[platforms[0]])
 
-  const out = path.resolve(opts.out ?? path.join(work, `${appName}-${opts.pr ? `pr${opts.pr}` : (headSha ?? 'head').slice(0, 7)}.diff.scrmap`))
+  const out = path.resolve(opts.out ?? path.join(work, `${fileSafe(appName)}-${opts.pr ? `pr${opts.pr}` : (headSha ?? 'head').slice(0, 7)}.diff.scrmap`))
   packDiff({ diffDir, platforms: sides.map((s) => ({ platform: s.platform, device: s.device })), out })
   const diff = readJson(path.join(diffDir, 'diff.json'))
   const sum = (f) => sides.reduce((n, s) => n + f(s), 0)

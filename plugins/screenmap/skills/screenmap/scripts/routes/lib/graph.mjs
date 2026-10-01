@@ -28,7 +28,11 @@ export function normalize(fragment, ctx, { provider }) {
 
   const edges = fragment.edges ?? []
   const layouts = fragment.layouts ?? []
-  const { name: appName, scheme } = ctx.appConfig()
+  const { name: appName, scheme: rawScheme } = ctx.appConfig()
+  // The scheme is the project's to declare, and it is pasted into deep links
+  // and shell command templates downstream: only an RFC 3986 scheme survives.
+  const scheme = rawScheme == null || /^[A-Za-z][A-Za-z0-9+.-]*$/.test(rawScheme) ? rawScheme ?? null : null
+  if (scheme !== (rawScheme ?? null)) console.error(`note: ignoring URL scheme ${JSON.stringify(rawScheme)}: not a valid scheme`)
 
   const graph = {
     generatedAt: new Date().toISOString(),
