@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import YAML from 'yaml'
 import { runJev, candidates, parseDescribe } from './jev.mjs'
+import { loadConfig } from './util.mjs'
 
 const el = (role, text, y, flags = []) => ({ role, text, flags, x: 0.1, y, w: 0.8, h: 0.05 })
 
@@ -100,7 +101,7 @@ test('never offers destructive controls or secret fields', async () => {
   await runJev(args)
   assert.ok(jev.options.length > 0)
   assert.ok(!jev.options.some((o) => /Sign out|Delete account|Password/.test(o)), jev.options.join('\n'))
-  const offered = candidates([el('AXButton', 'Buy now', 0.1), el('AXButton', 'Log out', 0.2), el('AXButton', 'Profile', 0.3), el('AXButton', 'Save', 0.4, ['disabled']), el('AXTextField', 'Email', 0.5), el('AXSecureTextField', 'Code', 0.6, ['password'])], { canType: true, platform: 'ios' })
+  const offered = candidates([el('AXButton', 'Buy now', 0.1), el('AXButton', 'Log out', 0.2), el('AXButton', 'Profile', 0.3), el('AXButton', 'Save', 0.4, ['disabled']), el('AXTextField', 'Email', 0.5), el('AXSecureTextField', 'Code', 0.6, ['password'])], { platform: 'ios' })
   assert.deepEqual(offered.map((a) => a.key), ['tap:Profile', 'scroll'])
 })
 
@@ -116,9 +117,6 @@ test('uses the text model only to fill a field', async () => {
   assert.deepEqual(device.typed, ['pasta'])
   const steps = YAML.parse(fs.readFileSync(path.join(dir, 'flows', 'nav-results.yaml'), 'utf8')).steps
   assert.ok(steps.some((s) => s.tool === 'keyboard' && s.args.text === 'pasta'))
-  const without = setup({ id: 'results', title: 'Search results' }, { jev: fakeJev(['"Search" (AXButton)', 'type into']), agent: { maxSteps: 2 } })
-  await runJev(without.args)
-  assert.ok(!without.args.deps.jev.options.some((o) => o.startsWith('type into')))
 })
 
 test('stops on the step budget and reports the screen unreached', async () => {
@@ -164,4 +162,22 @@ test('parses argent describe output', () => {
     { role: 'AXButton', text: 'Say "hi"', flags: ['clickable'], x: 0.1, y: 0.2, w: 0.8, h: 0.05 },
     { role: 'AXTextField', text: 'pasta', flags: ['focused'], x: 0.1, y: 0.3, w: 0.8, h: 0.05 },
   ])
+})
+
+test('jev needs both the classifier key and the agent key', () => {
+  const keys = ['AGENT_PROVIDER', 'AGENT_API_KEY', 'ANTHROPIC_API_KEY', 'CLASSIFIER_API_KEY', 'TYPESAFE_API_KEY', 'SCREENMAP_EFFORT']
+  const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]))
+  const effortWith = (env) => {
+    for (const k of keys) delete process.env[k]
+    Object.assign(process.env, { AGENT_PROVIDER: 'jev' }, env)
+    return loadConfig(fs.mkdtempSync(path.join(os.tmpdir(), 'jev-cfg-'))).effort
+  }
+  try {
+    assert.equal(effortWith({ AGENT_API_KEY: 'a' }), 'deterministic')
+    assert.equal(effortWith({ CLASSIFIER_API_KEY: 't' }), 'deterministic')
+    assert.equal(effortWith({ AGENT_API_KEY: 'a', CLASSIFIER_API_KEY: 't' }), 'balanced')
+    assert.equal(effortWith({ ANTHROPIC_API_KEY: 'a', TYPESAFE_API_KEY: 't' }), 'balanced')
+  } finally {
+    for (const k of keys) if (saved[k] === undefined) delete process.env[k]; else process.env[k] = saved[k]
+  }
 })

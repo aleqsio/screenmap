@@ -34,11 +34,11 @@ inputs:
       empty and effort falls back to "deterministic", which replays committed flows and deep-links
       the rest without spending a token.
     default: ""
-  agent_text_api_key:
+  classifier_api_key:
     description: >-
-      (agent_provider jev) Anthropic key for the small model that writes text into input fields
-      (agent.textModel, default claude-haiku-4-5). Navigation is decided by jev alone; without
-      this key the jev agent never types and skips screens behind a form.
+      (agent_provider jev) TypeSafe key for jev, which decides where to navigate. jev needs both
+      keys: this one, and agent_api_key for the Anthropic model that writes text into input fields
+      (agent.textModel, default claude-haiku-4-5). Without either, effort falls back to "deterministic".
     default: ""
   effort:
     description: >-
@@ -383,7 +383,7 @@ runs:
         SCREENMAP_EFFORT: ${{ inputs.effort }}
         AGENT_MAX_SCREENS: ${{ inputs.agent_max_screens }}
         AGENT_API_KEY: ${{ inputs.agent_api_key }}
-        AGENT_TEXT_API_KEY: ${{ inputs.agent_text_api_key }}
+        CLASSIFIER_API_KEY: ${{ inputs.classifier_api_key }}
         SCREENMAP_APP_PATH: ${{ steps.app.outputs.app }}
         SCREENMAP_PLATFORMS: ${{ inputs.platform }}
         # the device this action actually provisioned, so the driver uses that

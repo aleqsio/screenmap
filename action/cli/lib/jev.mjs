@@ -65,13 +65,13 @@ export function anthropicText({ apiKey, model }) {
   }
 }
 
-export function candidates(elements, { canType, platform }) {
+export function candidates(elements, { platform }) {
   const out = [], seen = new Set()
   for (const el of elements) {
     const label = el.text.trim()
     if (!label || el.flags.includes('disabled') || UNSAFE.test(label)) continue
     const kind = FIELD.test(el.role) ? 'type' : 'tap'
-    if (kind === 'type' && (!canType || el.flags.includes('password') || SECRET.test(label))) continue
+    if (kind === 'type' && (el.flags.includes('password') || SECRET.test(label))) continue
     const key = `${kind}:${label}`
     if (seen.has(key)) continue
     seen.add(key)
@@ -164,12 +164,11 @@ function record(s, r, ctx) {
   return name
 }
 
-export async function runJev({ screens, config, apiKey, session, scheme, bundleId, platform, deviceName, outScreensDir, outFlowsDir, summaryPath, deps = {} }) {
-  const textKey = process.env.ANTHROPIC_API_KEY || process.env.AGENT_TEXT_API_KEY
-  const text = deps.text ?? (textKey ? anthropicText({ apiKey: textKey, model: config.agent.textModel ?? TEXT_MODEL }) : null)
+export async function runJev({ screens, config, apiKey, classifierKey, session, scheme, bundleId, platform, deviceName, outScreensDir, outFlowsDir, summaryPath, deps = {} }) {
+  const text = deps.text ?? anthropicText({ apiKey, model: config.agent.textModel ?? TEXT_MODEL })
   const ctx = {
-    jev: deps.jev ?? new TypeSafeClient({ apiKey }),
-    text, canType: !!text,
+    jev: deps.jev ?? new TypeSafeClient({ apiKey: classifierKey }),
+    text,
     device: deps.device ?? sessionDevice(session, path.join(path.dirname(summaryPath), 'jev-read.png')),
     model: config.agent.model,
     maxSteps: config.agent.maxSteps ?? MAX_STEPS,

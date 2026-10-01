@@ -8,7 +8,7 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
-import { PROVIDER_KEY_ENVS, ensureDir, log, readJson } from './util.mjs'
+import { CLASSIFIER_KEY_ENVS, PROVIDER_KEY_ENVS, ensureDir, log, readJson } from './util.mjs'
 import { runJev } from './jev.mjs'
 
 export const SKILL_DIR = path.resolve(new URL('../../../plugins/screenmap/skills/screenmap', import.meta.url).pathname)
@@ -51,7 +51,7 @@ export const PROVIDERS = {
       return a
     },
   },
-  jev: { keyEnv: PROVIDER_KEY_ENVS.jev, run: runJev },
+  jev: { keyEnv: PROVIDER_KEY_ENVS.jev, classifierKeyEnv: CLASSIFIER_KEY_ENVS.jev, run: runJev },
 }
 
 // AGENT_PROVIDER env (set by the Action input) beats config.agent.provider;
@@ -127,7 +127,9 @@ export async function runAgent({ projectDir, config, screens, scheme, runtime, s
 
   log(`agent (${provider.name}, ${platform}): exploring ${budgeted.length} screen(s)${skipped.length ? `, ${skipped.length} over budget` : ''}`)
   if (provider.run) {
-    const summary = await provider.run({ screens: budgeted, config, apiKey: env[provider.keyEnv], session, scheme, bundleId, platform, deviceName: device, outScreensDir, outFlowsDir, summaryPath })
+    const classifierKey = process.env[provider.classifierKeyEnv] || process.env.CLASSIFIER_API_KEY
+    if (!classifierKey) return { ran: false, reason: `${provider.name} needs classifier_api_key (${provider.classifierKeyEnv}) as well as agent_api_key`, ...info }
+    const summary = await provider.run({ screens: budgeted, config, apiKey: env[provider.keyEnv], classifierKey, session, scheme, bundleId, platform, deviceName: device, outScreensDir, outFlowsDir, summaryPath })
     return { ran: true, ...info, exit: 0, summary, overBudget: skipped.map((s) => s.id), transcript: '' }
   }
 
