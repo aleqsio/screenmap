@@ -112,7 +112,7 @@ You need all four of these:
      "device": "iPhone 17 Pro",
      "params": { "id": "v60" },
      "suspects": { "depth": 2, "broadCap": 8 },
-     "waits": { "transition": 2500, "network": 6000, "boot": 15000 },
+     "waits": { "transition": 2500, "network": 6000, "boot": 15000, "relaunch": 4000 },
      "agent": { "enabled": true, "provider": "claude", "scan": "params", "maxScreens": 8 }
    }
    ```
@@ -137,7 +137,7 @@ You need all four of these:
    | `params` | `{}` | Real values for route parameters, see below |
    | `suspects.depth` | from `effort` | Import hops followed out from a changed file |
    | `suspects.broadCap` | `8` | Cap on screens marked by a change to a widely imported file |
-   | `waits` | `2500` / `6000` / `15000` ms | `transition`, `network` and `boot` settle times |
+   | `waits` | `2500` / `6000` / `15000` / `4000` ms | `transition`, `network`, `boot` and `relaunch` settle times |
    | `agent.enabled` | `true` | Set `false` for a deterministic-only run |
    | `agent.provider` | `claude` | A preset CLI, or `agent.command` plus `agent.keyEnv` for any other |
    | `agent.scan` | from `effort` | `unflowed`, `params` or `all` |
