@@ -61,7 +61,7 @@ export const RUNTIMES = { expo, nativescript }
 // overrides that, for a custom provider over a NativeScript app say.
 export function runtimeFor(config, graph) {
   const id = config.runtime ?? (graph.mode === 'nativescript' ? 'nativescript' : 'expo')
-  if (!RUNTIMES[id]) throw new Error(`unknown runtime "${id}" — expected ${Object.keys(RUNTIMES).join(' | ')}`)
+  if (!Object.hasOwn(RUNTIMES, id)) throw new Error(`unknown runtime "${id}" — expected ${Object.keys(RUNTIMES).join(' | ')}`)
   return RUNTIMES[id]
 }
 
