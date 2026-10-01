@@ -55,8 +55,12 @@ export function stripJsonc(src) {
 export function createProjectCtx(projectRoot) {
   const rel = (p) => path.relative(projectRoot, p).split(path.sep).join('/')
 
+  const MAX_SOURCE_BYTES = 1024 * 1024
   const readFileOrNull = (p) => {
-    try { return fs.readFileSync(p, 'utf8') } catch { return null }
+    try {
+      if (fs.statSync(p).size > MAX_SOURCE_BYTES) return null
+      return fs.readFileSync(p, 'utf8')
+    } catch { return null }
   }
 
   // Recursive file list. `skip` defaults to the directories no route ever lives
