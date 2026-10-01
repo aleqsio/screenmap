@@ -14,7 +14,7 @@
     "$comment": "device is the AVD name or the model of an attached device; null takes whatever is attached, else the first AVD. packageName/appPath are discovered when omitted.",
     "device": null
   },
-  "waits": { "transition": 2500, "network": 6000, "boot": 15000 },
+  "waits": { "transition": 2500, "network": 6000, "boot": 15000, "relaunch": 4000 },
   "suspects": { "broadCap": 8 },
   "agent": {
     "$comment": "provider: claude (default) | codex | gemini | opencode; or command: a bash template run instead ({promptFile} / $SCREENMAP_PROMPT_FILE carry the task), with keyEnv naming the env var it needs. scan overrides the effort preset: unflowed | params | all",

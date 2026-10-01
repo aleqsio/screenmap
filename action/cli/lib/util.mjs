@@ -99,7 +99,7 @@ export function loadConfig(projectDir) {
   const base = {
     scheme: null, bundleId: null, appPath: null, device: null, metroPort: 8081,
     platforms: ['ios'],
-    waits: { transition: 2500, network: 6000, boot: 15000 },
+    waits: { transition: 2500, network: 6000, boot: 15000, relaunch: 4000 },
     suspects: { broadCap: 8 },
     agent: { enabled: true, model: null, provider: null, command: null, keyEnv: null },
     flowsDir: '.screenmap/flows', skillFile: '.screenmap/SKILL.md',
