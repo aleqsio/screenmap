@@ -22,8 +22,13 @@ export function importMap(ctx, src, fromFile) {
 // The file that declares `name`, following barrel re-exports
 // (`export * from './x'`, `export { A } from './y'`) — Angular apps route to
 // components through index.ts files as often as not.
-export function locateExport(ctx, absFile, name, depth = 0) {
-  if (!absFile || depth > 6) return null
+export function locateExport(ctx, absFile, name, depth = 0, seen = new Map()) {
+  // A barrel that re-exports itself, or a cycle of them, fans out
+  // exponentially within the depth bound. Skip a file already searched for
+  // this name at the same depth or shallower: that search went at least as far.
+  const key = `${absFile}#${name}`
+  if (!absFile || depth > 6 || seen.get(key) <= depth) return null
+  seen.set(key, depth)
   const src = ctx.readFileOrNull(absFile)
   if (!src) return null
   if (name === 'default') return absFile
@@ -34,13 +39,13 @@ export function locateExport(ctx, absFile, name, depth = 0) {
     for (const part of m[1].split(',')) {
       const pm = part.trim().match(/^(?:type\s+)?([A-Za-z_$][\w$]*)(?:\s+as\s+([A-Za-z_$][\w$]*))?$/)
       if (pm && (pm[2] ?? pm[1]) === name) {
-        const hit = locateExport(ctx, ctx.resolveImport(m[2], absFile), pm[1], depth + 1)
+        const hit = locateExport(ctx, ctx.resolveImport(m[2], absFile), pm[1], depth + 1, seen)
         if (hit) return hit
       }
     }
   }
   for (const m of src.matchAll(/export\s*\*\s*from\s*["']([^"']+)["']/g)) {
-    const hit = locateExport(ctx, ctx.resolveImport(m[1], absFile), name, depth + 1)
+    const hit = locateExport(ctx, ctx.resolveImport(m[1], absFile), name, depth + 1, seen)
     if (hit) return hit
   }
   return null

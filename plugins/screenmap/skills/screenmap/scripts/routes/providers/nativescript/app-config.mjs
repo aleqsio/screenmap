@@ -42,7 +42,12 @@ export function appConfig(ctx) {
   if (!ns) return ctx.appConfig()
   const read = (...p) => ctx.readFileOrNull(path.join(ctx.projectRoot, ns.appResourcesPath, ...p)) ?? ''
   const vars = {}
-  for (const m of read('iOS', 'build.xcconfig').matchAll(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*([^;\n]*?)\s*;?\s*$/gm)) vars[m[1]] = m[2]
+  // One unbounded group, trimmed afterwards: several adjacent \s* around a lazy
+  // value made a line of spaces in a crafted xcconfig take hours to match.
+  for (const m of read('iOS', 'build.xcconfig').matchAll(/^[ \t]*([A-Z_][A-Z0-9_]*)[ \t]*=([^\n]*)$/gm)) {
+    const v = m[2].trim().replace(/;$/, '').trimEnd()
+    if (!v.includes(';')) vars[m[1]] = v
+  }
   const subst = (s) => s.replace(/\$[({]?([A-Z_][A-Z0-9_]*)[)}]?/g, (m, k) => vars[k] ?? (/BUNDLE_IDENTIFIER$/.test(k) ? ns.id : null) ?? m)
   const SDK_SCHEME = /^(com\.googleusercontent\.apps\.|fb\d|msauth|twitterkit|db-)/
   const plist = read('iOS', 'Info.plist')
