@@ -58,7 +58,7 @@ const flows = fs.existsSync(flowsDir)
       .filter((f, _, all) => f.endsWith('.meta.json') || !all.some((x) => x.endsWith('.meta.json')))
       .map((f) => {
         try {
-          return { ...JSON.parse(fs.readFileSync(path.join(flowsDir, f), 'utf8')), _file: f }
+          return v2Steps({ ...JSON.parse(fs.readFileSync(path.join(flowsDir, f), 'utf8')), _file: f }, flowsDir)
         } catch {
           return null
         }
@@ -190,6 +190,34 @@ const groupSections = [...groups.entries()]
   </section>`
   })
   .join('\n')
+
+
+// v2 sidecars key `steps` by YAML index; rebuild the flat step list from the YAML + sidecar.
+function v2Steps(f, dir) {
+  if (Array.isArray(f.steps)) return f
+  const yamlPath = path.join(dir, f._file.replace(/\.meta\.json$/, '.yaml'))
+  const lines = fs.existsSync(yamlPath) ? fs.readFileSync(yamlPath, 'utf8').split('\n') : []
+  const raw = []
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^  - (.*)$/); if (!m) continue
+    const body = m[1]
+    if (body.startsWith('tool: open-url')) { const u = (lines[i + 2] ?? '').match(/url:\s*"?([^"]*)"?/); raw.push({ action: 'open_url', url: u?.[1] ?? '' }) }
+    else if (body.startsWith('wait:')) raw.push({ action: 'wait', seconds: (parseInt(body.slice(5), 10) || 0) / 1000 })
+    else if (body.startsWith('tap:')) raw.push({ action: 'tap', target: body.slice(4).trim().replace(/^"|"$/g, '') })
+    else if (body.startsWith('type:')) raw.push({ action: 'type', text: body.slice(5).trim().replace(/^"|"$/g, '') })
+    else if (body.startsWith('scroll-to:')) raw.push({ action: 'scroll', note: body.slice(10).trim() })
+    else raw.push({ action: body.split(':')[0] })
+  }
+  const out = []
+  raw.forEach((st, idx) => {
+    const meta = (f.steps ?? {})[String(idx)] ?? {}
+    if (meta.target) st.target = meta.target + (meta.screen ? ` -> ${meta.screen}` : '')
+    if (meta.note) st.note = meta.note
+    out.push(st)
+    if (meta.capture) out.push({ action: 'screenshot', file: meta.capture })
+  })
+  return { ...f, steps: out }
+}
 
 function flowStep(st, i) {
   const desc =

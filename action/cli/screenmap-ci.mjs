@@ -26,7 +26,7 @@
 // simulator or emulator. See docs/ci.md.
 import fs from 'node:fs'
 import path from 'node:path'
-import { parseArgs, loadConfig, platformConfig, readJson, writeJson, ensureDir, exists, log, sh, sleep, deepLinkFor } from './lib/util.mjs'
+import { parseArgs, loadConfig, platformConfig, readJson, writeJson, ensureDir, exists, log, sh, sleep, deepLinkFor, validScheme, fileSafe } from './lib/util.mjs'
 import { openSession } from './lib/device.mjs'
 import { runtimeFor } from './lib/runtime.mjs'
 import { readBaseline, parseRoutes, computeSuspects, packBaseline, packDiff, downscaleAll, baselineSide, platformsIn } from './lib/bundle.mjs'
@@ -40,6 +40,16 @@ const { opts, positional } = parseArgs(process.argv.slice(2))
 const cmd = positional[0]
 
 const git = (args, cwd) => { try { return sh('git', args, { cwd }) } catch { return null } }
+// git names changed files from the repository root whatever the cwd, but routes
+// and the suspect import walk are project-relative. Rebase every path onto the
+// project; in a monorepo, files outside it become ../… paths, which is also
+// how diff-map resolves imports of a shared workspace package.
+const changedFiles = (project, ...range) => {
+  const out = git(['diff', '--name-only', ...range], project)
+  if (out === null) return null
+  const prefix = git(['rev-parse', '--show-prefix'], project) || '.'
+  return out.split('\n').filter(Boolean).map((f) => path.posix.relative(prefix, f))
+}
 const copyShots = (fromDir, toDir, slug) => {
   if (!exists(fromDir)) return 0
   ensureDir(toDir)
@@ -207,7 +217,7 @@ async function baseline() {
   fs.rmSync(work, { recursive: true, force: true }); ensureDir(work)
   const graph = parseRoutes(project, path.join(work, 'graph.json'))
   const runtime = runtimeFor(config, graph)
-  const scheme = config.scheme ?? graph.scheme ?? null
+  const scheme = validScheme(config.scheme ?? graph.scheme)
   if (!scheme) {
     if (runtime.requiresScheme) throw new Error('no deep-link scheme: set scheme in .screenmap/config.json')
     log('no URL scheme in the app or .screenmap/config.json — only the root screen, committed flows and the agent can capture anything')
@@ -225,12 +235,12 @@ async function baseline() {
   if (opts.previous && exists(opts.previous) && !opts.full) {
     prev = readBaseline(opts.previous, path.join(work, 'prev'))
     prevCommit = prev.manifest.source?.commit
-    const changed = prevCommit ? git(['diff', '--name-only', prevCommit, 'HEAD'], project) : null
+    const changed = prevCommit ? changedFiles(project, prevCommit, 'HEAD') : null
     if (changed === null) {
       log('previous baseline commit not in history — doing a full capture')
       prev = null
     } else {
-      const suspects = computeSuspects({ diffDir: path.join(work, 'diff'), baseGraph: prev.graph, headGraph: graph, changedFiles: changed.split('\n').filter(Boolean), projectDir: project, depth: config.suspects.depth, broadCap: config.suspects.broadCap })
+      const suspects = computeSuspects({ diffDir: path.join(work, 'diff'), baseGraph: prev.graph, headGraph: graph, changedFiles: changed, projectDir: project, depth: config.suspects.depth, broadCap: config.suspects.broadCap })
       suspect = new Set(suspects.capture.filter((c) => c.status !== 'D').map((c) => c.id))
     }
   }
@@ -277,7 +287,7 @@ async function baseline() {
     sides.push({ platform, device: deviceName, screensDir, cap, captureStatus, reused })
   }
 
-  const out = path.resolve(opts.out ?? path.join(work, `${appName}-${(commit ?? 'local').slice(0, 7)}.scrmap`))
+  const out = path.resolve(opts.out ?? path.join(work, `${fileSafe(appName)}-${(commit ?? 'local').slice(0, 7)}.scrmap`))
   packBaseline({
     graph, flowsDir: flowsDirForPack, appName, commit, ref, out,
     platforms: sides.map((s) => ({ platform: s.platform, device: s.device, screensDir: s.screensDir })),
@@ -317,14 +327,14 @@ async function pr() {
   const base = readBaseline(opts.baseline, path.join(work, 'base-bundle'))
   const headGraph = parseRoutes(project, path.join(work, 'head-graph.json'))
   const runtime = runtimeFor(config, headGraph)
-  const scheme = config.scheme ?? headGraph.scheme ?? base.graph.scheme
+  const scheme = validScheme(config.scheme ?? headGraph.scheme ?? base.graph.scheme)
   const baseSha = opts.base ?? base.manifest.source?.commit ?? null
   const headSha = opts.head ?? git(['rev-parse', 'HEAD'], project)
   const appName = config.appName ?? headGraph.appName ?? base.manifest.app?.name ?? path.basename(project)
   const platforms = opts.platform ? [String(opts.platform)] : config.platforms
   const multi = platforms.length > 1
   let changed = opts['changed-files'] ? fs.readFileSync(opts['changed-files'], 'utf8').split('\n').filter(Boolean) : null
-  if (!changed && baseSha) changed = (git(['diff', '--name-only', `${baseSha}...${headSha}`], project) ?? git(['diff', '--name-only', baseSha, headSha], project) ?? '').split('\n').filter(Boolean)
+  if (!changed && baseSha) changed = changedFiles(project, `${baseSha}...${headSha}`) ?? changedFiles(project, baseSha, headSha)
   if (!changed) throw new Error('cannot determine changed files: pass --changed-files <list> or make sure the base commit is fetched')
 
   const diffDir = path.join(work, 'diff')
@@ -375,7 +385,7 @@ async function pr() {
   writeJson(path.join(diffDir, 'base', 'capture-status.json'), multi ? baseStatusByPlatform : baseStatusByPlatform[platforms[0]])
   writeJson(path.join(diffDir, 'head', 'capture-status.json'), multi ? headStatusByPlatform : headStatusByPlatform[platforms[0]])
 
-  const out = path.resolve(opts.out ?? path.join(work, `${appName}-${opts.pr ? `pr${opts.pr}` : (headSha ?? 'head').slice(0, 7)}.diff.scrmap`))
+  const out = path.resolve(opts.out ?? path.join(work, `${fileSafe(appName)}-${opts.pr ? `pr${opts.pr}` : (headSha ?? 'head').slice(0, 7)}.diff.scrmap`))
   packDiff({ diffDir, platforms: sides.map((s) => ({ platform: s.platform, device: s.device })), out })
   const diff = readJson(path.join(diffDir, 'diff.json'))
   const sum = (f) => sides.reduce((n, s) => n + f(s), 0)

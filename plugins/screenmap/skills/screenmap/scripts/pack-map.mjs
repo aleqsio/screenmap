@@ -133,7 +133,7 @@ try {
   for (const f of flowFiles) fs.copyFileSync(path.join(flowsDir, f), path.join(stage, 'flows', f))
 
   const date = new Date().toISOString().slice(0, 10)
-  outPath = path.resolve(outPath ?? path.join(base, `${appName}-${date}.scrmap`))
+  outPath = path.resolve(outPath ?? path.join(base, `${String(appName).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '') || 'app'}-${date}.scrmap`))
   fs.rmSync(outPath, { force: true })
   execFileSync('zip', ['-r', '-q', outPath, 'manifest.json', 'map.json', 'screens', 'flows'], { cwd: stage })
   const kb = Math.round(fs.statSync(outPath).size / 1024)

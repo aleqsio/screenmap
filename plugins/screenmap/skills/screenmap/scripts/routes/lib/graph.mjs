@@ -30,7 +30,9 @@ export function normalize(fragment, ctx, { provider }) {
   const layouts = fragment.layouts ?? []
   // A framework that keeps its name and scheme outside app.json / app.config.*
   // reads them itself.
-  const { name: appName, scheme } = provider.appConfig?.(ctx) ?? ctx.appConfig()
+  const { name: appName, scheme: rawScheme } = provider.appConfig?.(ctx) ?? ctx.appConfig()
+  const scheme = rawScheme == null || /^[A-Za-z][A-Za-z0-9+.-]*$/.test(rawScheme) ? rawScheme ?? null : null
+  if (scheme !== (rawScheme ?? null)) console.error(`note: ignoring URL scheme ${JSON.stringify(rawScheme)}: not a valid scheme`)
 
   const graph = {
     generatedAt: new Date().toISOString(),

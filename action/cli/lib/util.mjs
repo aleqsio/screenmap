@@ -4,6 +4,14 @@ import path from 'node:path'
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 export const log = (...a) => console.error('[screenmap-ci]', ...a)
+
+export function validScheme(s) {
+  if (s == null || /^[A-Za-z][A-Za-z0-9+.-]*$/.test(s)) return s ?? null
+  log(`ignoring URL scheme ${JSON.stringify(s)}: not a valid scheme`)
+  return null
+}
+
+export const fileSafe = (s) => String(s).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '') || 'app'
 export const sh = (cmd, args, opts = {}) =>
   execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim()
 export const shOk = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', ...opts }).status === 0
