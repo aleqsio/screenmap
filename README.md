@@ -142,6 +142,9 @@ You need all four of these:
    | `agent.provider` | `claude` | A preset CLI, or `agent.command` plus `agent.keyEnv` for any other |
    | `agent.scan` | from `effort` | `unflowed`, `params` or `all` |
    | `agent.maxScreens` | from `effort` | Screen budget for one run |
+   | `agent.maxSteps` | `12` | (`jev`) Actions the jev agent may take per screen before giving up |
+   | `agent.minConfidence` | `0.3` | (`jev`) Stop a screen when jev's confidence in its next action drops below this |
+   | `agent.textModel` | `claude-haiku-4-5` | (`jev`) Anthropic model that writes text into input fields |
    | `flowsDir` | `.screenmap/flows` | Where committed flows live |
    | `skillFile` | `.screenmap/SKILL.md` | Where the project guidance lives |
 
@@ -178,8 +181,9 @@ In a monorepo, point the Action at the app with `project: apps/mobile`. Dependen
 | --- | --- | --- |
 | `mode` | required | `pr` or `baseline` |
 | `project` | `.` | Path to the app project (Expo or NativeScript), relative to the repo root |
-| `agent_provider` | `claude` | `claude`, `codex`, `gemini` or `opencode`. See [AI providers](#ai-providers) |
+| `agent_provider` | `claude` | `claude`, `codex`, `gemini`, `opencode` or `jev`. See [AI providers](#ai-providers) |
 | `agent_api_key` | empty | Key for the chosen provider. Leave empty for deterministic-only runs |
+| `agent_text_api_key` | empty | (`jev`) Anthropic key for the model that fills input fields. See [jev](#jev) |
 | `effort` | `balanced` | `fast`, `balanced` or `thorough` — tokens and wall-clock against accuracy. See [Install](#install) step 3 |
 | `agent_max_screens` | empty | How many screens the agent may explore in one run. Empty uses the `effort` preset (6 / 8 / 24) |
 | `auto_baseline` | `"true"` | (pr) Start the baseline workflow when no map exists yet, instead of asking for it. Needs `actions: write` |
@@ -206,6 +210,7 @@ The agent lane is provider-agnostic. Its contract is file-based: the agent is to
 | `codex` | `codex exec --dangerously-bypass-approvals-and-sandbox` | `OPENAI_API_KEY` |
 | `gemini` | `gemini --yolo -p …` | `GEMINI_API_KEY` |
 | `opencode` | `opencode run …` | whichever its configured provider needs |
+| `jev` | none: runs in-process, see [jev](#jev) | `TYPESAFE_API_KEY` |
 
 Pass the key as the `agent_api_key` input and the CLI maps it onto the env var the provider expects (an env var you set explicitly wins). The Action installs the chosen CLI on demand. Locally, `AGENT_PROVIDER` plus the provider's own env var work the same way.
 
@@ -218,6 +223,16 @@ For any other CLI, set this in `.screenmap/config.json`:
 `{promptFile}` (also available as `$SCREENMAP_PROMPT_FILE`) is a markdown file holding the full task. The command runs through bash in the project directory, and your workflow has to install it beforehand. Setting `agent.provider` in the same file picks a preset without touching the workflow YAML.
 
 The prompt is identical across providers, so quality depends on the model driving it. Claude Code is the only one dogfooded end to end.
+
+#### jev
+
+`agent_provider: jev` (or `"agent": { "provider": "jev" }`) swaps the coding agent for [TypeSafe](https://typesafe.ai)'s jev, a decision model that reads text and picks from a labelled set of options. It does not spawn a CLI and gets no prompt. Instead, screenmap-ci runs the loop itself, one screen at a time. It relaunches the app and reads the screen through argent's accessibility tree (`describe`), falling back to OCR when the tree is empty. jev then gets the target screen (id, title, source file, known landmarks, and the static graph's links into it), the elements on screen and the actions taken so far, and answers two questions: has the app arrived, and which of the listed actions comes next. Those actions are tap an element, type into a field, scroll down, and press back on Android. The loop runs the chosen action through argent and repeats. On arrival it writes the same `nav-<slug>` flow, `.meta.json` sidecar (with landmarks) and capture that the CLI agents write, so replay, the flows PR and the comment treat them the same way.
+
+- **Keys.** `agent_api_key` (or `TYPESAFE_API_KEY`) for jev. jev cannot write text, so a field is filled by a small Anthropic model, `claude-haiku-4-5` unless `agent.textModel` says otherwise. Its key goes in `agent_text_api_key`, or `ANTHROPIC_API_KEY` locally. That model is asked only for what to type into a field, never where to go. Without its key, typing is never offered.
+- **Safety is enforced, not requested.** Controls whose label reads like sign out, delete, purchase, pay, subscribe, send, post, report, block and similar are never offered to jev. Neither are password fields or fields for credentials, emails, phone numbers or payment details.
+- **Budgets.** `effort` and `agent.maxScreens` cap the screens as for every provider. `agent.maxSteps` caps the actions per screen. A screen also stops when the app returns to the same screen a third time, when jev picks none of the actions, or when its confidence drops below `agent.minConfidence`. Each of these is reported as a skipped screen with the reason.
+- **Cost and latency.** A step is one jev call (70–500 ms, $0.042 per million input tokens) plus one argent read, so a screen costs a fraction of a cent and seconds rather than the minutes and dollars a coding agent spends exploring. The trade is judgement. jev cannot find real ids for a parameterised route, read the PR, write notes about a screen, or recover from an unexpected state the way a coding agent can. It does not write `notes.json`.
+- **Limits.** The state is text only, and jev never sees the screenshot. A screen whose controls have no accessibility labels gives it nothing to choose from beyond what OCR reads. Arrival is jev's judgement, vetoed when the route's committed flow has landmarks and none of them are on screen. This provider is unit-tested against a fake jev, text model and device, and has not yet been run against the live API or a real simulator.
 
 ### Running the CI pipeline locally
 

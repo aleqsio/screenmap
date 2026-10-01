@@ -68,7 +68,7 @@ export const EFFORTS = {
 // lane; PROVIDERS builds its keyEnv from this. opencode authenticates through
 // whichever provider it was configured for, so there is nothing to look for.
 export const PROVIDER_KEY_ENVS = {
-  claude: 'ANTHROPIC_API_KEY', codex: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', opencode: null,
+  claude: 'ANTHROPIC_API_KEY', codex: 'OPENAI_API_KEY', gemini: 'GEMINI_API_KEY', opencode: null, jev: 'TYPESAFE_API_KEY',
 }
 
 // Is there a key for the provider this run would use? A custom agent.command
