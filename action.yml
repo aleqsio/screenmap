@@ -187,19 +187,48 @@ runs:
           --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" \
           --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" || true
 
-    - name: Install project dependencies
+    - name: Find the lockfile
+      id: lockfile
       shell: bash
       working-directory: ${{ inputs.project }}
       # In a monorepo the lockfile sits at the workspace root, not in the
       # project, so install from the nearest directory up to the repo root
-      # that has one.
+      # that has one. bun is checked last so a directory that also carries one
+      # of the other lockfiles installs the way it always has.
       run: |
         dir=$(pwd -P); root=$(git rev-parse --show-toplevel 2>/dev/null || echo "$dir")
-        until [ -f "$dir/pnpm-lock.yaml" ] || [ -f "$dir/yarn.lock" ] || [ -f "$dir/package-lock.json" ] || [ "$dir" = "$root" ] || [ "$dir" = / ]; do dir=$(dirname "$dir"); done
-        cd "$dir"
-        if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile
-        elif [ -f yarn.lock ]; then yarn install --frozen-lockfile
-        else npm ci; fi
+        until [ -f "$dir/pnpm-lock.yaml" ] || [ -f "$dir/yarn.lock" ] || [ -f "$dir/package-lock.json" ] || [ -f "$dir/bun.lock" ] || [ -f "$dir/bun.lockb" ] || [ "$dir" = "$root" ] || [ "$dir" = / ]; do dir=$(dirname "$dir"); done
+        if [ -f "$dir/pnpm-lock.yaml" ]; then manager=pnpm
+        elif [ -f "$dir/yarn.lock" ]; then manager=yarn
+        elif [ -f "$dir/package-lock.json" ]; then manager=npm
+        elif [ -f "$dir/bun.lock" ] || [ -f "$dir/bun.lockb" ]; then manager=bun
+        else manager=npm; fi
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+        echo "manager=$manager" >> "$GITHUB_OUTPUT"
+        if [ "$manager" = bun ] && ! command -v bun >/dev/null; then echo "setup_bun=true" >> "$GITHUB_OUTPUT"; fi
+
+    # GitHub's runner images carry yarn, and pnpm comes from corepack, but
+    # nothing provides bun, and `npm ci` is no substitute: it wants a
+    # package-lock.json and ignores bun's patchedDependencies. A bun the
+    # workflow already put on PATH (or a self-hosted runner has) is used as is;
+    # otherwise the version comes from packageManager / engines.bun in the
+    # package.json next to the lockfile, and is the latest when neither pins it.
+    - name: Set up bun
+      if: steps.lockfile.outputs.setup_bun == 'true'
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version-file: ${{ steps.lockfile.outputs.dir }}/package.json
+
+    - name: Install project dependencies
+      shell: bash
+      working-directory: ${{ steps.lockfile.outputs.dir }}
+      run: |
+        case "${{ steps.lockfile.outputs.manager }}" in
+          pnpm) corepack enable && pnpm install --frozen-lockfile ;;
+          yarn) yarn install --frozen-lockfile ;;
+          bun)  bun install --frozen-lockfile ;;
+          *)    npm ci ;;
+        esac
 
     - name: Boot simulator (ios)
       if: inputs.platform == 'ios'
