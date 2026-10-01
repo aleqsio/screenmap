@@ -28,6 +28,9 @@ inputs:
   agent_provider:
     description: "Agent CLI for screens with no committed flow: claude (default) | codex | gemini | opencode. Or set agent.command in .screenmap/config.json to run any CLI."
     default: ""
+  agent_cli_version:
+    description: Version of the agent_provider CLI to install. Empty installs the version this release of the Action pins.
+    default: ""
   agent_api_key:
     description: >-
       API key for the chosen agent provider (mapped to the env var it expects). Optional: leave it
@@ -215,7 +218,7 @@ runs:
     # package.json next to the lockfile, and is the latest when neither pins it.
     - name: Set up bun
       if: steps.lockfile.outputs.setup_bun == 'true'
-      uses: oven-sh/setup-bun@v2
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
       with:
         bun-version-file: ${{ steps.lockfile.outputs.dir }}/package.json
 
@@ -336,7 +339,7 @@ runs:
           [ -e "$app" ] || { echo "::error::app_path not found: $app"; exit 1; }
           echo "using provided dev client: $app"
         else
-          command -v eas >/dev/null || npm install -g eas-cli --silent
+          command -v eas >/dev/null || npm install -g eas-cli@24.8.0 --silent
           profile="${{ inputs.eas_profile }}"
           if [ -z "$profile" ]; then
             if [ "${{ inputs.platform }}" = "android" ]; then profile=development-emulator; else profile=development-simulator; fi
@@ -374,6 +377,7 @@ runs:
       shell: bash
       env:
         AGENT_PROVIDER: ${{ inputs.agent_provider }}
+        AGENT_CLI_VERSION: ${{ inputs.agent_cli_version }}
         SCREENMAP_EFFORT: ${{ inputs.effort }}
         AGENT_MAX_SCREENS: ${{ inputs.agent_max_screens }}
         AGENT_API_KEY: ${{ inputs.agent_api_key }}
@@ -394,13 +398,13 @@ runs:
         # install the chosen agent CLI on demand; a custom agent.command must be preinstalled by the workflow
         if [ -n "$AGENT_API_KEY$AGENT_PROVIDER" ]; then
           case "${AGENT_PROVIDER:-claude}" in
-            claude)   bin=claude;   pkg=@anthropic-ai/claude-code ;;
-            codex)    bin=codex;    pkg=@openai/codex ;;
-            gemini)   bin=gemini;   pkg=@google/gemini-cli ;;
-            opencode) bin=opencode; pkg=opencode-ai ;;
+            claude)   bin=claude;   pkg=@anthropic-ai/claude-code; ver=2.1.287 ;;
+            codex)    bin=codex;    pkg=@openai/codex;             ver=0.160.0 ;;
+            gemini)   bin=gemini;   pkg=@google/gemini-cli;        ver=0.62.0 ;;
+            opencode) bin=opencode; pkg=opencode-ai;               ver=1.18.34 ;;
             *)        bin=""; pkg="" ;;
           esac
-          if [ -n "$bin" ] && ! command -v "$bin" >/dev/null; then npm install -g "$pkg" --silent; fi
+          if [ -n "$bin" ] && ! command -v "$bin" >/dev/null; then npm install -g "$pkg@${AGENT_CLI_VERSION:-$ver}" --silent; fi
         fi
         proj="${{ inputs.project }}"
         mkdir -p "$proj/.screenmap" && [ -f "$proj/.screenmap/config.json" ] || true

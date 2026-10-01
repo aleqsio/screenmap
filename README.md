@@ -179,6 +179,7 @@ In a monorepo, point the Action at the app with `project: apps/mobile`. Dependen
 | `mode` | required | `pr` or `baseline` |
 | `project` | `.` | Path to the app project (Expo or NativeScript), relative to the repo root |
 | `agent_provider` | `claude` | `claude`, `codex`, `gemini` or `opencode`. See [AI providers](#ai-providers) |
+| `agent_cli_version` | empty | Version of the `agent_provider` CLI to install. Empty installs the version this release pins |
 | `agent_api_key` | empty | Key for the chosen provider. Leave empty for deterministic-only runs |
 | `effort` | `balanced` | `fast`, `balanced` or `thorough` — tokens and wall-clock against accuracy. See [Install](#install) step 3 |
 | `agent_max_screens` | empty | How many screens the agent may explore in one run. Empty uses the `effort` preset (6 / 8 / 24) |
@@ -205,9 +206,9 @@ The agent lane is provider-agnostic. Its contract is file-based: the agent is to
 | `claude` (default) | `claude -p … --dangerously-skip-permissions` | `ANTHROPIC_API_KEY` |
 | `codex` | `codex exec --dangerously-bypass-approvals-and-sandbox` | `OPENAI_API_KEY` |
 | `gemini` | `gemini --yolo -p …` | `GEMINI_API_KEY` |
-| `opencode` | `opencode run …` | whichever its configured provider needs |
+| `opencode` | `opencode run …` | whichever its configured provider needs, named in `agent.keyEnv` |
 
-Pass the key as the `agent_api_key` input and the CLI maps it onto the env var the provider expects (an env var you set explicitly wins). The Action installs the chosen CLI on demand. Locally, `AGENT_PROVIDER` plus the provider's own env var work the same way.
+Pass the key as the `agent_api_key` input and the CLI maps it onto the env var the provider expects (an env var you set explicitly wins). The Action installs the chosen CLI on demand, at the version it pins unless `agent_cli_version` says otherwise. Locally, `AGENT_PROVIDER` plus the provider's own env var work the same way.
 
 For any other CLI, set this in `.screenmap/config.json`:
 
@@ -266,6 +267,16 @@ This is also the repair path when a flow drifts. A drifted flow is captured by d
 - The baseline refreshes on every push to `main` and on a weekday cron. Refreshes are incremental: only suspect screens, and screens with no usable previous capture, get re-captured.
 - The agent budget defaults to 8 screens per run, and the comment says what got skipped.
 - The status bar is frozen at 9:41 with `simctl status_bar override` before every screenshot, so base and head pixels differ only where the app differs. Simulator privacy is pre-granted with `simctl privacy grant all`, so a mis-tap cannot raise a system dialog over later captures.
+
+### Security
+
+The agent reads untrusted text: the PR's source, and whatever the app puts on screen. Treat it as something that can be talked into running a command, and keep what it can reach small.
+
+- **Run on `pull_request`, never `pull_request_target`.** `pull_request_target` hands a fork's PR the write token and your secrets while running its code: the install scripts, the app, and the agent.
+- **Fork PRs get a read-only token and no secrets.** With no `expo_token` the run stops at its first step. With `app_path` it captures and uploads the artifact, then fails at publishing and commenting, both of which need write access.
+- **Set `publish: "false"`** on a private repo, or when the app's screens show data you would not put on a public URL.
+- **The agent's environment carries only its own API key.** Its process gets `PATH`, `HOME`, locale and terminal variables, the Android and Xcode tooling paths, and the one key variable for its provider (or `agent.keyEnv`). `GH_TOKEN`, `GITHUB_TOKEN`, `EXPO_TOKEN`, the Actions runtime tokens and `AGENT_API_KEY` itself are never passed. An opencode or custom agent that reads a different variable needs it named in `agent.keyEnv`. This is not a sandbox: the agent runs as the runner user, which can still read the job token `actions/checkout` persists in `.git/config`, the one publishing pushes with.
+- **The agent CLIs, `eas-cli` and `argent` are installed at pinned versions**, so a new release cannot change what runs on your runner without a change to the Action.
 
 ## Map an app on your machine
 
