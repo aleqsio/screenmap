@@ -23,9 +23,6 @@ export function importMap(ctx, src, fromFile) {
 // (`export * from './x'`, `export { A } from './y'`) — Angular apps route to
 // components through index.ts files as often as not.
 export function locateExport(ctx, absFile, name, depth = 0, seen = new Map()) {
-  // A barrel that re-exports itself, or a cycle of them, fans out
-  // exponentially within the depth bound. Skip a file already searched for
-  // this name at the same depth or shallower: that search went at least as far.
   const key = `${absFile}#${name}`
   if (!absFile || depth > 6 || seen.get(key) <= depth) return null
   seen.set(key, depth)

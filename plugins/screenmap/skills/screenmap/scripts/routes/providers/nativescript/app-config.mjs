@@ -42,8 +42,6 @@ export function appConfig(ctx) {
   if (!ns) return ctx.appConfig()
   const read = (...p) => ctx.readFileOrNull(path.join(ctx.projectRoot, ns.appResourcesPath, ...p)) ?? ''
   const vars = {}
-  // One unbounded group, trimmed afterwards: several adjacent \s* around a lazy
-  // value made a line of spaces in a crafted xcconfig take hours to match.
   for (const m of read('iOS', 'build.xcconfig').matchAll(/^[ \t]*([A-Z_][A-Z0-9_]*)[ \t]*=([^\n]*)$/gm)) {
     const v = m[2].trim().replace(/;$/, '').trimEnd()
     if (!v.includes(';')) vars[m[1]] = v
