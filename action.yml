@@ -356,8 +356,6 @@ runs:
         SCREENMAP_DEVICE_IOS: ${{ env.SIM_UDID || inputs.simulator }}
         SCREENMAP_DEVICE_ANDROID: ${{ inputs.avd }}
         GH_TOKEN: ${{ inputs.github_token }}
-        # PR fields the PR author controls reach the script as variables, never
-        # as text pasted into it: a title like `"; curl … | sh; "` would run
         PR_TITLE: ${{ github.event.pull_request.title }}
         PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
         PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}

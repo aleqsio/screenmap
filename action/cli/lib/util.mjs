@@ -5,16 +5,12 @@ import path from 'node:path'
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 export const log = (...a) => console.error('[screenmap-ci]', ...a)
 
-// The scheme comes from files a PR controls and ends up in deep links and in
-// the agent's shell command templates, so only an RFC 3986 scheme gets through.
 export function validScheme(s) {
   if (s == null || /^[A-Za-z][A-Za-z0-9+.-]*$/.test(s)) return s ?? null
   log(`ignoring URL scheme ${JSON.stringify(s)}: not a valid scheme`)
   return null
 }
 
-// The app name is the PR's to choose; a file name built from it must not carry
-// quotes, newlines or path separators into the shell steps that handle it.
 export const fileSafe = (s) => String(s).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '') || 'app'
 export const sh = (cmd, args, opts = {}) =>
   execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts }).trim()
