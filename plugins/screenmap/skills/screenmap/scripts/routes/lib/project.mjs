@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 
 const IMPORT_EXT = ['.tsx', '.ts', '.jsx', '.js']
-const DEFAULT_SKIP = /(^|\/)(node_modules|\.git|\.expo|\.screenmap|ios|android|build|dist)(\/|$)/
+export const DEFAULT_SKIP = /(^|\/)(node_modules|\.git|\.expo|\.screenmap|ios|android|build|dist)(\/|$)/
 
 export function escapeRe(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -97,6 +97,7 @@ export function createProjectCtx(projectRoot) {
   }
 
   function resolveToRel(candidate) {
+    candidate = candidate.replace(/\/+$/, '')
     for (const suffix of ['', ...IMPORT_EXT, ...IMPORT_EXT.map((e) => '/index' + e)]) {
       const c = candidate + suffix
       try { if (fs.statSync(path.join(projectRoot, c)).isFile()) return c } catch {}

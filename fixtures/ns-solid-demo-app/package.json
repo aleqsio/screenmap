@@ -1,0 +1,16 @@
+{
+  "name": "ns-solid-demo",
+  "main": "src/index.ts",
+  "private": true,
+  "dependencies": {
+    "@nativescript-community/solid-js": "^1.0.0",
+    "@nativescript/core": "~9.1.0",
+    "dominative": "^1.0.0",
+    "solid-js": "^1.9.0",
+    "solid-navigation": "^1.0.0"
+  },
+  "devDependencies": {
+    "@nativescript/vite": "~8.0.9",
+    "typescript": "~5.9.3"
+  }
+}

@@ -1,0 +1,109 @@
+{
+  "appName": "Vue Demo",
+  "scheme": "nsvue",
+  "deepLinkTemplates": {
+    "devBuild": "nsvue://<urlPath minus leading slash>"
+  },
+  "mode": "nativescript",
+  "flavor": "vue",
+  "appPath": "app",
+  "entryFile": "app/app.ts",
+  "screensResolved": 4,
+  "layouts": [
+    {
+      "file": "app/app.ts",
+      "dir": "",
+      "navigator": "Stack"
+    }
+  ],
+  "routes": [
+    {
+      "id": "Home",
+      "file": "app/components/Home.vue",
+      "urlPath": "/",
+      "title": "Home",
+      "reach": "deep-link",
+      "slug": "Home",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": null,
+      "stateHints": []
+    },
+    {
+      "id": "Settings",
+      "file": "app/components/Settings.vue",
+      "urlPath": null,
+      "title": "Settings",
+      "reach": "navigation-only",
+      "slug": "Settings",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": null,
+      "stateHints": []
+    },
+    {
+      "id": "Details",
+      "file": "app/components/Details.vue",
+      "urlPath": null,
+      "title": "Details",
+      "reach": "navigation-only",
+      "slug": "Details",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": null,
+      "stateHints": []
+    },
+    {
+      "id": "Filters",
+      "file": "app/components/Filters.vue",
+      "urlPath": null,
+      "title": "Filters",
+      "reach": "navigation-only",
+      "slug": "Filters",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": "modal",
+      "stateHints": [
+        {
+          "type": "router-modal",
+          "presentation": "modal"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "Home",
+      "to": "Details",
+      "raw": "$navigateTo(Details",
+      "target": "Details"
+    },
+    {
+      "from": "Home",
+      "to": "Filters",
+      "raw": "$showModal(Filters",
+      "target": "Filters"
+    },
+    {
+      "from": "Details",
+      "to": "Settings",
+      "raw": "$navigateTo(Settings",
+      "target": "Settings"
+    }
+  ],
+  "summary": {
+    "mode": "nativescript",
+    "routes": 4,
+    "layouts": 1,
+    "edges": 3,
+    "unresolvedEdges": 0,
+    "routesWithStateHints": 1,
+    "routesNeedingParams": 0,
+    "navigationOnlyRoutes": 3,
+    "orphanRoutes": 0
+  }
+}

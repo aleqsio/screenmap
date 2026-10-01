@@ -171,7 +171,7 @@ export function platformConfig(config, platform) {
 // plenty of screens outside their linking config; falling back to the app root
 // would capture the home screen and file it under this route's name.
 export function deepLinkFor(scheme, route, params = {}) {
-  if (!route.urlPath) return null
+  if (!route.urlPath || !scheme) return null
   let p = route.urlPath
   for (const name of route.params ?? []) {
     const v = params[`${route.id}.${name}`] ?? params[name] ?? '1'

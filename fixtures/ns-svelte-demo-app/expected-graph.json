@@ -1,0 +1,90 @@
+{
+  "appName": "Svelte Demo",
+  "scheme": null,
+  "deepLinkTemplates": {
+    "devBuild": null
+  },
+  "mode": "nativescript",
+  "flavor": "svelte",
+  "appPath": "app",
+  "entryFile": "app/app.ts",
+  "screensResolved": 3,
+  "layouts": [
+    {
+      "file": "app/app.ts",
+      "dir": "",
+      "navigator": "Stack"
+    }
+  ],
+  "routes": [
+    {
+      "id": "Details",
+      "file": "app/pages/Details.svelte",
+      "urlPath": null,
+      "title": "Details",
+      "reach": "navigation-only",
+      "slug": "Details",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": null,
+      "stateHints": []
+    },
+    {
+      "id": "App",
+      "file": "app/App.svelte",
+      "urlPath": "/",
+      "title": "App",
+      "reach": "deep-link",
+      "slug": "App",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": null,
+      "stateHints": []
+    },
+    {
+      "id": "Filters",
+      "file": "app/pages/Filters.svelte",
+      "urlPath": null,
+      "title": "Filters",
+      "reach": "navigation-only",
+      "slug": "Filters",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": "modal",
+      "stateHints": [
+        {
+          "type": "router-modal",
+          "presentation": "modal"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "Details",
+      "to": "Filters",
+      "raw": "showModal({ page: Filters",
+      "target": "Filters"
+    },
+    {
+      "from": "App",
+      "to": "Details",
+      "raw": "navigate({ page: Details",
+      "target": "Details"
+    }
+  ],
+  "summary": {
+    "mode": "nativescript",
+    "routes": 3,
+    "layouts": 1,
+    "edges": 2,
+    "unresolvedEdges": 0,
+    "routesWithStateHints": 1,
+    "routesNeedingParams": 0,
+    "navigationOnlyRoutes": 2,
+    "orphanRoutes": 0
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "appName": "Octane Demo",
+  "scheme": null,
+  "deepLinkTemplates": {
+    "devBuild": null
+  },
+  "mode": "nativescript",
+  "flavor": "octane",
+  "appPath": "src",
+  "entryFile": "src/index.ts",
+  "screensResolved": 2,
+  "layouts": [
+    {
+      "file": "src/index.ts",
+      "dir": "",
+      "navigator": "Stack"
+    }
+  ],
+  "routes": [
+    {
+      "id": "SettingsSheet",
+      "file": "src/components/settings.tsx",
+      "urlPath": null,
+      "title": "SettingsSheet",
+      "reach": "navigation-only",
+      "slug": "SettingsSheet",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": "modal",
+      "stateHints": [
+        {
+          "type": "router-modal",
+          "presentation": "modal"
+        }
+      ]
+    },
+    {
+      "id": "App",
+      "file": "src/app.tsx",
+      "urlPath": "/",
+      "title": "App",
+      "reach": "deep-link",
+      "slug": "App",
+      "params": [],
+      "navigator": "Stack",
+      "layoutDir": "",
+      "presentation": null,
+      "stateHints": [
+        {
+          "type": "drawer"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "App",
+      "to": "SettingsSheet",
+      "raw": "renderNativeScriptApp(container, SettingsSheet",
+      "target": "SettingsSheet"
+    }
+  ],
+  "summary": {
+    "mode": "nativescript",
+    "routes": 2,
+    "layouts": 1,
+    "edges": 1,
+    "unresolvedEdges": 0,
+    "routesWithStateHints": 2,
+    "routesNeedingParams": 0,
+    "navigationOnlyRoutes": 1,
+    "orphanRoutes": 0
+  }
+}

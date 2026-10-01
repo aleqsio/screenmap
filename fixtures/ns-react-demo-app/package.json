@@ -1,0 +1,14 @@
+{
+  "name": "ns-react-demo",
+  "main": "src/app.ts",
+  "private": true,
+  "dependencies": {
+    "@nativescript/core": "~9.1.0",
+    "react": "^18.3.0",
+    "react-nativescript": "^5.0.0"
+  },
+  "devDependencies": {
+    "@nativescript/webpack": "~5.0.0",
+    "typescript": "~5.9.0"
+  }
+}

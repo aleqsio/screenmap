@@ -59,28 +59,55 @@ export async function waitFor(promise, ms, label) {
   return t
 }
 
-// Boot the whole stack: device, app, Metro, first bundle. Returns a session
-// with capture helpers; call session.close() at the end.
-export async function openSession({ projectDir, config, scheme, platform = 'ios' }) {
+// Boot the whole stack: device, app, and whatever the runtime needs before the
+// first capture (Metro and the first bundle, for Expo). Returns a session with
+// capture helpers; call session.close() at the end.
+export async function openSession({ projectDir, config, scheme, platform = 'ios', runtime }) {
   const driver = driverFor(platform)
   const { id, name } = await driver.ensureBooted(config)
   driver.freezeStatusBar(id)
-  const appPath = config.appPath ?? driver.findBuiltApp(projectDir)
-  if (!appPath) {
-    throw new Error(platform === 'android'
-      ? 'no built dev client found under android/app/build/outputs/apk — build it first (expo run:android --no-bundler) or pass app_path'
-      : 'no built dev client found under ios/build — build it first (expo run:ios --no-bundler)')
-  }
+  const appPath = config.appPath ?? runtime.findBuild({ projectDir, platform, driver })
+  if (!appPath) throw new Error(runtime.missingBuild(platform))
+  runtime.checkBuild(appPath, platform)
   const appId = config.appId ?? driver.appIdOf(appPath)
   driver.installApp(id, appPath)
   driver.grantPrivacy(id, appId)
-  driver.muteDevMenu(id, appId)
-  driver.approveScheme(id, scheme, appId)
+  runtime.prepare({ driver, id, appId })
+  if (scheme) driver.approveScheme(id, scheme, appId)
   await sleep(3000) // let the launcher settle (iOS resprings SpringBoard above)
   // resolve the OCR backend now — compiling the Vision helper lazily inside the
   // connect loop starves a small runner while Metro bundles, and simctl openurl
   // then times out
   ocrAvailable()
+  const booted = await runtime.boot({ projectDir, config, scheme, platform, driver, id, appId })
+  await sleep(config.waits.boot)
+  log(`session ready: ${appId} on ${name} (${id}), ${booted.note}`)
+  let firstVisit = true
+  const session = {
+    platform, driver, runtime, id, udid: id, appId, bundleId: appId, scheme, config,
+    deviceName: name ?? config.device,
+    screenshot(outPath) { return driver.screenshot(id, outPath) },
+    async visit(url, outPath, waitMs) {
+      try { driver.openUrl(id, url, appId) } catch { await sleep(2000); driver.openUrl(id, url, appId) } // one retry for transient timeouts
+      await sleep(waitMs ?? config.waits.transition)
+      // dev builds often show a one-off toast right after the bundle loads;
+      // give the very first capture extra time to settle
+      if (firstVisit) { await sleep(config.waits.settle ?? 6000); firstVisit = false }
+      driver.screenshot(id, outPath)
+      return outPath
+    },
+    async relaunch() {
+      driver.terminate(id, appId); await sleep(800); driver.launch(id, appId); await sleep(4000)
+      firstVisit = true // dev builds re-show their load-time toast after a relaunch
+    },
+    close() { booted.stop() },
+  }
+  return session
+}
+
+// Start Metro and steer the dev client onto it; resolves with the Metro
+// handle once the first bundle has been served.
+export async function connectDevClient({ projectDir, config, scheme, platform, driver, id, appId }) {
   const metro = startMetro(projectDir, config.metroPort)
   await waitFor(metro.ready, 120000, 'Metro to start')
   // the emulator's localhost is not the host's — open the tunnel before the
@@ -126,27 +153,5 @@ export async function openSession({ projectDir, config, scheme, platform = 'ios'
     metro.stop()
     throw new Error(`timed out waiting for first JS bundle (${platform})`)
   }
-  await sleep(config.waits.boot)
-  log(`session ready: ${appId} on ${name} (${id}), Metro :${config.metroPort}`)
-  let firstVisit = true
-  const session = {
-    platform, driver, id, udid: id, appId, bundleId: appId, scheme, config,
-    deviceName: name ?? config.device,
-    screenshot(outPath) { return driver.screenshot(id, outPath) },
-    async visit(url, outPath, waitMs) {
-      try { driver.openUrl(id, url, appId) } catch { await sleep(2000); driver.openUrl(id, url, appId) } // one retry for transient timeouts
-      await sleep(waitMs ?? config.waits.transition)
-      // dev builds often show a one-off toast right after the bundle loads;
-      // give the very first capture extra time to settle
-      if (firstVisit) { await sleep(config.waits.settle ?? 6000); firstVisit = false }
-      driver.screenshot(id, outPath)
-      return outPath
-    },
-    async relaunch() {
-      driver.terminate(id, appId); await sleep(800); driver.launch(id, appId); await sleep(4000)
-      firstVisit = true // dev builds re-show their load-time toast after a relaunch
-    },
-    close() { metro.stop() },
-  }
-  return session
+  return metro
 }

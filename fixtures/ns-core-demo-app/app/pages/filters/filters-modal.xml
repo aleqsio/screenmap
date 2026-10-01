@@ -1,0 +1,6 @@
+<Page xmlns="http://schemas.nativescript.org/tns.xsd" shownModally="onShownModally">
+  <StackLayout>
+    <Label text="Filters" />
+    <Button text="Done" tap="onDone" />
+  </StackLayout>
+</Page>

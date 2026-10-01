@@ -6,6 +6,24 @@ the full write-up of what that turned up is in `site/docs/setup-instruction-fixe
 
 ---
 
+## NativeScript: what is still unverified
+
+The provider, the iOS deterministic lane (deep links and launch capture) and
+flow replay have run against real Angular, Octane, Vue and Solid apps. Not yet:
+
+- **Android runtime.** Build discovery under `platforms/android`, the bundled
+  boot and the `ns debug` stub guard (which reads `assets/app/bundle.mjs` out
+  of the APK) have never run a NativeScript APK through the lane.
+- **The agent lane.** No agent has explored a NativeScript app unattended; the
+  flows so far were recorded by hand.
+- **PR diffs end to end.** The code path is unchanged, but no NativeScript diff
+  has run, and each side needs its own `ns build`.
+- **Core, React and Svelte on real apps.** Fixtures only; React NativeScript is
+  root-only until its navigation idioms are pinned down.
+- **Deep-link inference.** `routes.links` is hand-written. Reading the app's own
+  URL handler for `navigate(...)` calls could fill it, once more than one app's
+  handler shape is known.
+
 ## Android: verified on CI, and what the first runs cost
 
 Android support landed on 2026-09-01 and ran green on GitHub Actions on

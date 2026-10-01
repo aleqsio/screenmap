@@ -1,13 +1,13 @@
 ---
 name: screenmap
-description: Generate a visual navigation map of an Expo / React Native app. Statically parses routes and links (expo-router, react-navigation, or your own parser) for full coverage, then deep-links through every screen in the iOS simulator or Android emulator capturing screenshots — including runtime states like bottom sheet snap points and modals — and renders a self-contained HTML map. Both platforms can go into one map with a platform switcher. Also diffs two revisions into a PR preview (.diff.scrmap) showing which screens/edges were added, removed, or changed. Use when the user asks to map an Expo/React Native app's navigation, screens, or routes, wants a visual sitemap of their app, or wants to preview/review what a PR changes on-screen.
+description: Generate a visual navigation map of an Expo / React Native or NativeScript app. Statically parses routes and links (expo-router, react-navigation, NativeScript Angular Router or Core XML pages, or your own parser) for full coverage, then deep-links through every screen in the iOS simulator or Android emulator capturing screenshots — including runtime states like bottom sheet snap points and modals — and renders a self-contained HTML map. Both platforms can go into one map with a platform switcher. Also diffs two revisions into a PR preview (.diff.scrmap) showing which screens/edges were added, removed, or changed. Use when the user asks to map an Expo/React Native/NativeScript app's navigation, screens, or routes, wants a visual sitemap of their app, or wants to preview/review what a PR changes on-screen.
 ---
 
 # screenmap
 
-Produce a visual map of an Expo / React Native app's navigation: every route as a card with a screenshot, runtime state variants (bottom sheets at each snap point, modals), and navigation edges between screens.
+Produce a visual map of an Expo / React Native or NativeScript app's navigation: every route as a card with a screenshot, runtime state variants (bottom sheets at each snap point, modals), and navigation edges between screens.
 
-**Arguments:** optional path to the Expo project (default: current working directory). `--static` = skip the device phases and render a screenshot-less map. `--platform ios|android|both` (default `ios`) = which device(s) to capture on. `pr <number>` or `diff <base>..<head>` = PR diff mode (see bottom).
+**Arguments:** optional path to the app project (default: current working directory). `--static` = skip the device phases and render a screenshot-less map. `--platform ios|android|both` (default `ios`) = which device(s) to capture on. `pr <number>` or `diff <base>..<head>` = PR diff mode (see bottom).
 
 **Working directory contract:** all outputs go to `<project>/.screenmap/out/` — `graph.json`, `screens/*.png`, `flows/*.yaml` + `flows/*.meta.json`, `map.html`. Suggest adding `.screenmap/out/` to the project's `.gitignore` at the end.
 
@@ -66,7 +66,9 @@ Rules:
 node <this skill's dir>/scripts/parse-routes.mjs <project>
 ```
 
-The parser picks a **route provider** for the project — `expo-router`, `react-navigation`, or a `custom` command — and prints which one it chose and why. See `docs/route-providers.md` for the full contract.
+The parser picks a **route provider** for the project — `expo-router`, `react-navigation`, `nativescript` (Angular Router, Core XML pages, or the components an Octane / React / Vue / Svelte app mounts, pushes and presents), or a `custom` command — and prints which one it chose and why. See `docs/route-providers.md` for the full contract.
+
+For a NativeScript project (`mode` is `nativescript`), read `references/nativescript.md` in this skill's directory now: deep links come from `routes.links`, there is no Metro, and it has its own state hints and PR-diff steps.
 
 Read the produced `<project>/.screenmap/out/graph.json` and report the summary to the user: the provider (`mode`), route count, layouts (with navigator types), edges (flag unresolved ones), routes with state hints, routes needing params, and **routes with no deep link** (`navigationOnlyRoutes`).
 

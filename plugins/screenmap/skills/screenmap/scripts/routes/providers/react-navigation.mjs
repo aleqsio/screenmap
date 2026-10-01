@@ -11,6 +11,7 @@
 
 import path from 'node:path'
 import { extractHints } from '../lib/hints.mjs'
+import { importedLinkSources } from '../lib/link-sources.mjs'
 
 export const meta = {
   id: 'react-navigation',
@@ -415,29 +416,13 @@ export function parse(ctx) {
 
   // Same one-hop-with-fanout-cap rule as expo-router: links live in list items
   // and cards, not in the screen module itself.
-  const IMPORT_FANOUT_CAP = 8
-  const importsOf = new Map()
-  const fanout = new Map()
-  for (const r of routes) {
-    if (!r._abs) continue
-    const src = ctx.readFileOrNull(r._abs)
-    if (!src) continue
-    const own = ctx.firstPartyImports(src, r.file)
-    importsOf.set(r.id, own)
-    for (const f of new Set(own)) fanout.set(f, (fanout.get(f) ?? 0) + 1)
-  }
+  const ownSrc = new Map(routes.map((r) => [r, r._abs ? ctx.readFileOrNull(r._abs) : null]))
+  const scanned = routes.filter((r) => ownSrc.get(r))
+  const imported = importedLinkSources(ctx, scanned, (r) => ownSrc.get(r))
 
   const edges = []
-  for (const r of routes) {
-    if (!r._abs) continue
-    const own = ctx.readFileOrNull(r._abs)
-    if (!own) continue
-    const sources = [own]
-    for (const f of importsOf.get(r.id) ?? []) {
-      if ((fanout.get(f) ?? 0) > IMPORT_FANOUT_CAP) continue
-      const s = ctx.readFileOrNull(path.join(ctx.projectRoot, f))
-      if (s) sources.push(s)
-    }
+  for (const r of scanned) {
+    const sources = [ownSrc.get(r), ...imported.get(r).map((m) => m.src)]
     const seen = new Set()
     for (const src of sources) {
       for (const m of src.matchAll(NAV_RE)) {
