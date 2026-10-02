@@ -25,7 +25,7 @@ function run(cmd, args, opts = {}) {
 function easCommand() {
   if (run('eas', ['--version']).status === 0) return ['eas']
   // npx from outside the project — a repo's devEngines pin can break npx inside it
-  return ['npx', '--yes', 'eas-cli']
+  return ['npx', '--yes', 'eas-cli@24.8.0']
 }
 
 // `eas … --json` still writes spinners/notices around the payload; take the

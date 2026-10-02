@@ -42,7 +42,7 @@ export const PROVIDERS = {
     },
   },
   opencode: {
-    bin: 'opencode', pkg: 'opencode-ai', keyEnv: PROVIDER_KEY_ENVS.opencode, // auth is per configured provider — bring your own env
+    bin: 'opencode', pkg: 'opencode-ai', keyEnv: PROVIDER_KEY_ENVS.opencode, // auth is per configured provider — name its var in agent.keyEnv
     args: ({ prompt, model }) => {
       const a = ['run']
       if (model) a.push('--model', model)
@@ -70,11 +70,16 @@ export function providerAvailable(p) {
   return r.status === 0 || !!(r.stdout || '').trim()
 }
 
+const AGENT_ENV = ['PATH', 'HOME', 'TMPDIR', 'LANG', 'TERM', 'SHELL', 'USER', 'LOGNAME', 'CI',
+  'ANDROID_HOME', 'ANDROID_SDK_ROOT', 'ANDROID_AVD_HOME', 'JAVA_HOME', 'DEVELOPER_DIR']
+const NEVER_PASS = /^(GH_TOKEN|GITHUB_TOKEN|EXPO_TOKEN|AGENT_API_KEY|ACTIONS_.*)$/
+
 // Map the generic AGENT_API_KEY secret onto whatever env var the chosen
 // provider reads, without clobbering an explicitly-set one.
 function providerEnv(p) {
-  const env = { ...process.env }
-  if (p.keyEnv && !env[p.keyEnv] && env.AGENT_API_KEY) env[p.keyEnv] = env.AGENT_API_KEY
+  const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => AGENT_ENV.includes(k) || k.startsWith('LC_')))
+  const key = p.keyEnv && !NEVER_PASS.test(p.keyEnv) && (process.env[p.keyEnv] || process.env.AGENT_API_KEY)
+  if (key) env[p.keyEnv] = key
   return env
 }
 
