@@ -28,8 +28,9 @@ export function upsertStickyComment({ repo, number, body }) {
 }
 
 // Commit files into an orphan branch via a throwaway worktree. Returns the
-// new commit sha and SHA-pinned raw URLs (raw.githubusercontent caches ~5min
-// and jsDelivr ~12h on branch refs — pin to the commit).
+// new commit sha, a github.com base for images and raw URLs for fetching, all
+// SHA-pinned (raw.githubusercontent caches ~5min and jsDelivr ~12h on branch
+// refs — pin to the commit).
 // Every PR run in a repo publishes to the same orphan branch, so two runs
 // finishing together race: the second one's push is rejected non-fast-forward.
 // There is no real conflict — each run writes its own pr-N/<sha>/ paths — so
@@ -67,8 +68,8 @@ function publishOnce({ repo, branch, files, message, cwd }) {
   sh('git', ['push', '-q', 'origin', `HEAD:${branch}`], { cwd: wt })
   const sha = sh('git', ['rev-parse', 'HEAD'], { cwd: wt })
   git(['worktree', 'remove', '--force', wt])
-  const base = `https://raw.githubusercontent.com/${repo}/${sha}`
-  const urls = Object.fromEntries(files.map((f) => [f.dest, `${base}/${f.dest}`]))
+  const base = `https://github.com/${repo}/raw/${sha}`
+  const urls = Object.fromEntries(files.map((f) => [f.dest, `https://raw.githubusercontent.com/${repo}/${sha}/${f.dest}`]))
   log(`published ${files.length} file(s) to ${branch}@${sha.slice(0, 7)}`)
   return { sha, base, urls }
 }
