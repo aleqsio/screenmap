@@ -147,7 +147,9 @@ export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, 
                 aria-label={v.label}
                 className="data-[state=on]:bg-foreground data-[state=on]:text-background"
               >
-                {v.label}
+                {/* the short id keeps the bar inside a phone-width screen */}
+                <span className="md:hidden">{v.id}</span>
+                <span className="hidden md:inline">{v.label}</span>
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
