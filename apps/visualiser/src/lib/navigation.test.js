@@ -19,6 +19,21 @@ function browser(initial) {
   return window
 }
 
+test('in-page Back then browser Back returns through consecutive visits', () => {
+  const window = browser('http://localhost/?mode=prototype&screen=A')
+  const nav = createNavigation(window)
+  let current = nav.read()
+  const unsubscribe = nav.subscribe((next) => { current = next })
+  nav.visit('B')
+  nav.visit('C')
+  nav.back()
+  assert.equal(current.screen, 'B')
+  window.history.go(-1)
+  assert.equal(current.screen, 'A')
+  assert.equal(current.canBack, false)
+  unsubscribe()
+})
+
 test('visits and option history restore through in-page Back, browser Back, reload and replacement', () => {
   const window = browser('http://localhost/?map=demo&mode=prototype&screen=A#keep')
   const nav = createNavigation(window)

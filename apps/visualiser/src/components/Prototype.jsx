@@ -103,7 +103,7 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
               </div>
             </div>
           ) : <p className="rounded-md border px-4 py-8 text-sm text-muted-foreground">No capture for this screen.</p>}
-          <p className="text-center text-xs text-muted-foreground">Captured prototype. {hoverOnly ? 'Hover over links to reveal them.' : 'Highlighted links open saved screens.'}</p>
+          <p className="text-center text-xs text-muted-foreground">Captured prototype. {hoverOnly ? 'Hover over links to reveal them.' : 'Highlighted links open saved screens.'}{scroll ? ' Scroll inside the phone to view recorded positions.' : viewport ? ' Scroll inside the phone.' : ''}</p>
         </section>
         <aside className="w-full max-w-xs rounded-lg border bg-card p-4 text-sm">
           <label className="block font-semibold" htmlFor="prototype-screen">Screen</label>
@@ -115,12 +115,12 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
             {capture.states.length <= 3 ? (
               <ToggleGroup type="single" variant="outline" size="sm" spacing={0} value={state ?? '$base'} onValueChange={(value) => { if (value) setState(value === '$base' ? null : value) }} aria-label="State" className="mt-2 flex w-full flex-wrap">
                 <ToggleGroupItem value="$base" className="h-8 flex-1 text-xs data-[state=on]:bg-foreground data-[state=on]:text-background">Base</ToggleGroupItem>
-                {capture.states.map((item) => <ToggleGroupItem key={item.name} value={item.name} className="h-8 flex-1 text-xs data-[state=on]:bg-foreground data-[state=on]:text-background">{item.name}</ToggleGroupItem>)}
+                {capture.states.map((item) => <ToggleGroupItem key={item.name} value={item.name} className="h-8 flex-1 text-xs capitalize data-[state=on]:bg-foreground data-[state=on]:text-background">{item.name}</ToggleGroupItem>)}
               </ToggleGroup>
             ) : (
               <select aria-label="State" value={state ?? ''} onChange={(event) => setState(event.target.value || null)} className="mt-2 w-full rounded border bg-background p-2">
                 <option value="">Base</option>
-                {capture.states.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+                {capture.states.map((item) => <option key={item.name} value={item.name} className="capitalize">{item.name}</option>)}
               </select>
             )}
           </div>}

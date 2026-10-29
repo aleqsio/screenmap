@@ -40,6 +40,7 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, pla
   const [selectedFlow, setSelectedFlow] = useState(null)
   const [step, setStep] = useState(0)
   const [selectedNode, setSelectedNode] = useState(screen)
+  useEffect(() => { setSelectedNode(screen) }, [screen])
   const [selectedEdge, setSelectedEdge] = useState(null) // { key, from, to, raws }
   const [neighboursMode, setNeighboursMode] = useState(false)
   const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 900)
@@ -459,10 +460,10 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, pla
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
         onNodeClick={(_, n) => {
-          setScreen(n.id)
           setSelectedEdge(null)
           setNeighboursMode(false)
-          if (selectedNode === n.id) { setSelectedNode(null); setSelectedFlow(null); return }
+          if (selectedNode === n.id) { setScreen(null); setSelectedNode(null); setSelectedFlow(null); return }
+          setScreen(n.id)
           setSelectedNode(n.id)
           const chosen = chosenStates[n.id]
           if (chosen && jumpToCapture(n.id, chosen)) return
@@ -476,7 +477,7 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, pla
             else fitView({ nodes: [{ id: n.id }], padding: 0.6, duration: 500, maxZoom: 1.1 })
           }
         }}
-        onPaneClick={() => { setSelectedNode(null); setSelectedFlow(null); setSelectedEdge(null); setNeighboursMode(false) }}
+        onPaneClick={() => { if (screen) setScreen(null); setSelectedNode(null); setSelectedFlow(null); setSelectedEdge(null); setNeighboursMode(false) }}
         onEdgeClick={(_, e) => {
           if (!e.data?.key) return
           const same = selectedEdge?.key === e.data.key
