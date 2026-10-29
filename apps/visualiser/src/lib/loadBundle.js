@@ -299,6 +299,34 @@ export function platformsOf(bundle) {
   return [{ platform, label, device: app.device ?? null }]
 }
 
+// The variants (app settings such as language or theme) a bundle carries, in
+// capture order. Empty for a bundle without a variants axis.
+export function variantsOf(bundle) {
+  const v = bundle?.manifest?.variants
+  return Array.isArray(v) ? v.filter((x) => x?.id).map((x) => ({ id: x.id, label: x.label ?? x.id })) : []
+}
+
+// Same swap as withPlatform, for the variants axis: a variants bundle keys
+// each node's `captures` by variant id instead of by platform.
+export function withVariant(bundle, variant) {
+  if (!bundle || !variant || !variantsOf(bundle).length) return bundle
+  return {
+    ...bundle,
+    map: {
+      ...bundle.map,
+      nodes: bundle.map.nodes.map((n) => {
+        const cap = n.captures?.[variant]
+        const capBase = n.capturesBase?.[variant]
+        return {
+          ...n,
+          ...(cap ? { capture: cap } : {}),
+          ...(n.capturesBase ? { captureBase: capBase ?? null } : {}),
+        }
+      }),
+    },
+  }
+}
+
 // Point every node's `capture` at one platform's captures. Applied before the
 // map/diff merge, so nothing downstream needs to know platforms exist — it
 // keeps reading `capture` exactly as it always has.

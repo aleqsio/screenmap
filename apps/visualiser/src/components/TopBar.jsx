@@ -45,7 +45,7 @@ function ThemeMenu() {
 
 const PLATFORM_LABEL = { ios: 'iOS', android: 'Android' }
 
-export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, stats, diffStats, platforms = [], platform, setPlatform, onOpenBuffer, onCloseChanges }) {
+export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, stats, diffStats, platforms = [], platform, setPlatform, variants = [], variant, setVariant, onOpenBuffer, onCloseChanges }) {
   const diffMode = mode === 'changes'
   // The switcher only earns its space when there is something to switch to; a
   // single-platform map keeps the bar it always had.
@@ -125,6 +125,32 @@ export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, 
                 </TooltipTrigger>
                 <TooltipContent>{p.device ?? p.label ?? p.platform}</TooltipContent>
               </Tooltip>
+            ))}
+          </ToggleGroup>
+        )}
+
+        {variants.length > 0 && (
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            spacing={0}
+            value={variant ?? ''}
+            onValueChange={(v) => v && setVariant?.(v)}
+            aria-label="Variant"
+            className="shrink-0"
+          >
+            {variants.map((v) => (
+              <ToggleGroupItem
+                key={v.id}
+                value={v.id}
+                aria-label={v.label}
+                className="data-[state=on]:bg-foreground data-[state=on]:text-background"
+              >
+                {/* the short id keeps the bar inside a phone-width screen */}
+                <span className="md:hidden">{v.id}</span>
+                <span className="hidden md:inline">{v.label}</span>
+              </ToggleGroupItem>
             ))}
           </ToggleGroup>
         )}
