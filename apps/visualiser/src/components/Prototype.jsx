@@ -15,6 +15,20 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
     ?? map.nodes[0]?.id
   const current = nodes.get(screen) ?? nodes.get(start)
   const [history, setHistory] = useState([])
+  const [hoverOnly, setHoverOnly] = useState(() => new URLSearchParams(window.location.search).get('highlights') === 'hover')
+  useEffect(() => {
+    const restore = () => setHoverOnly(new URLSearchParams(window.location.search).get('highlights') === 'hover')
+    window.addEventListener('popstate', restore)
+    return () => window.removeEventListener('popstate', restore)
+  }, [])
+  const toggleHighlights = () => {
+    const next = !hoverOnly
+    const url = new URL(window.location.href)
+    if (next) url.searchParams.set('highlights', 'hover')
+    else url.searchParams.delete('highlights')
+    window.history.pushState(window.history.state, '', url)
+    setHoverOnly(next)
+  }
   useEffect(() => {
     const reset = () => setHistory([])
     window.addEventListener('popstate', reset)
@@ -62,6 +76,7 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
             <Button variant="outline" size="sm" onClick={() => { setHistory([]); if (start) setScreen(start) }} disabled={!start}><RotateCcw /> Start</Button>
             <strong className="min-w-0 truncate text-sm">{current ? nodeLabel(current) : 'No screens'}</strong>
           </div>
+          <Button variant="outline" size="sm" aria-pressed={hoverOnly} onClick={toggleHighlights}>Highlights on hover only: {hoverOnly ? 'On' : 'Off'}</Button>
           {capture && (capture.status !== 'ok' || capture.needsNavigation || capture.note) && (
             <p className="w-full max-w-md rounded-md border bg-muted px-3 py-2 text-sm" role="status">
               {capture.status === 'auth-wall' ? 'Authentication state differs' : capture.status !== 'ok' ? capture.status : 'Capture note'}{capture.note ? `: ${capture.note}` : capture.needsNavigation ? ': requires navigation' : ''}
@@ -69,14 +84,14 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
           )}
           {img ? (
             <div className="relative inline-block max-w-full leading-none">
-              <img src={img} alt={`Capture: ${nodeLabel(current)}`} className="block h-auto max-h-[calc(100vh-250px)] max-w-full rounded-xl border object-contain" />
+              <img src={img} alt={`Capture: ${nodeLabel(current)}`} className="block h-auto max-h-[calc(100vh-340px)] max-w-full rounded-xl border object-contain" />
               {links.map((link, i) => {
                 const [x, y, w, h] = link.rect
-                return <button key={`${link.to}-${i}`} type="button" aria-label={link.label} title={link.label} onClick={() => navigate(link.to)} className="absolute rounded border-2 border-primary/60 bg-primary/10 hover:bg-primary/25 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
+                return <button key={`${link.to}-${i}`} type="button" aria-label={link.label} title={link.label} onClick={() => navigate(link.to)} className={`absolute rounded border-2 hover:border-primary/60 hover:bg-primary/25 focus-visible:border-primary/60 focus-visible:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${hoverOnly ? 'border-transparent bg-transparent' : 'border-primary/60 bg-primary/10'}`} style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
               })}
             </div>
           ) : <p className="rounded-md border px-4 py-8 text-sm text-muted-foreground">No capture for this screen.</p>}
-          <p className="text-center text-xs text-muted-foreground">Captured prototype. Highlighted links open saved screens.</p>
+          <p className="text-center text-xs text-muted-foreground">Captured prototype. {hoverOnly ? 'Hover over links to reveal them.' : 'Highlighted links open saved screens.'}</p>
         </section>
         <aside className="w-full max-w-xs rounded-lg border bg-card p-4 text-sm">
           <label className="block font-semibold" htmlFor="prototype-screen">Screen</label>
