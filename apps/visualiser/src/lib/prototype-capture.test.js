@@ -20,8 +20,8 @@ test('both producers preserve verified base and named-state links; the loader re
     fs.writeFileSync(path.join(out, 'graph.json'), JSON.stringify(graph))
     const links = [{ label: 'Edit', to: 'profile', targetState: 'edit', rect: [0.1, 0.2, 0.3, 0.4] }, { label: 'Back', action: 'back', rect: [0, 0, 0.1, 0.1] }]
     const records = [
-      { node: 'home', variant: 'ios', sourceSha256: hash('base'), links: [...links, { label: 'Bad', to: 'profile', targetState: 'missing', rect: [0, 0, 0.1, 0.1] }], scroll: { next: 'more' } },
-      { node: 'home', variant: 'ios', state: 'more', sourceSha256: hash('menu'), links: [links[1]], scroll: { previous: '$base' } },
+      { node: 'home', variant: 'ios', sourceSha256: hash('base'), links: [...links, { label: 'Bad', to: 'profile', targetState: 'missing', rect: [0, 0, 0.1, 0.1] }], scroll: { next: 'more' }, viewport: { width: 390, height: 844 } },
+      { node: 'home', variant: 'ios', state: 'more', sourceSha256: hash('menu'), links: [links[1]], scroll: { previous: '$base' }, viewport: { width: -1, height: 844 } },
     ]
     fs.writeFileSync(path.join(out, 'hotspots.json'), JSON.stringify({ version: 1, captures: records }))
     const one = path.join(root, 'one.scrmap'), two = path.join(root, 'two.scrmap')
@@ -35,6 +35,8 @@ test('both producers preserve verified base and named-state links; the loader re
     assert.deepEqual(a.prototype.links, links)
     assert.equal(a.prototype.scroll.next, 'more')
     assert.equal(a.states[0].prototype.scroll.previous, '$base')
+    assert.deepEqual(a.prototype.viewport, { width: 390, height: 844 })
+    assert.equal(a.states[0].prototype.viewport, undefined)
     const files = unzipSync(fs.readFileSync(one))
     files['screens/home--more.png'] = new TextEncoder().encode('changed')
     const tampered = await loadBundle(zipSync(files))

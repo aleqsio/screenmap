@@ -17,6 +17,7 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
   const current = nodes.get(screen) ?? nodes.get(start)
   const hoverOnly = highlights === 'hover'
   const touchStart = useRef(null)
+  const phone = useRef(null)
   const scrollTime = useRef(0)
   const [aspect, setAspect] = useState(0.46)
   const baseImage = current?.capture?.screenshot ? images.get(current.capture.screenshot) : null
@@ -48,21 +49,34 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
     if (!nodes.has(id) || (id === current?.id && targetState === state)) return
     visit(id, targetState)
   }
-  const moveScroll = (direction) => {
-    const next = displayed?.prototype?.scroll?.[direction]
-    if (!next || Date.now() - scrollTime.current < 450) return
-    scrollTime.current = Date.now()
-    setState(next === '$base' ? null : next)
-  }
   const stats = { screens: map.nodes.length, captured: map.nodes.filter((n) => n.capture.screenshot && (n.capture.status ?? 'ok') === 'ok').length, flows: map.flows.length }
   const capture = current?.capture
   const displayed = state ? capture?.states?.find((s) => s.name === state) ?? capture : capture
   const img = displayed?.screenshot ? images.get(displayed.screenshot) : null
-  const links = Array.isArray(displayed?.prototype?.links) ? displayed.prototype.links.filter((link) =>
-    typeof link?.label === 'string' && (link.action === 'back' || nodes.has(link.to)) && Array.isArray(link.rect) && link.rect.length === 4 &&
-    link.rect.every(Number.isFinite) && link.rect[0] >= 0 && link.rect[1] >= 0 && link.rect[2] > 0 && link.rect[3] > 0 &&
-    link.rect[0] + link.rect[2] <= 1 && link.rect[1] + link.rect[3] <= 1
-  ) : []
+  const links = displayed?.prototype?.links ?? []
+  const viewport = displayed?.prototype?.viewport ?? capture?.prototype?.viewport
+  const frameAspect = viewport ? viewport.width / viewport.height : aspect
+  const scroll = displayed?.prototype?.scroll
+  useEffect(() => {
+    const element = phone.current
+    if (!element) return
+    const wheel = (event) => {
+      const next = scroll?.[event.deltaY > 0 ? 'next' : 'previous']
+      if (!next || Math.abs(event.deltaY) <= 10) return
+      event.preventDefault()
+      if (Date.now() - scrollTime.current < 450) return
+      scrollTime.current = Date.now()
+      setState(next === '$base' ? null : next)
+    }
+    element.addEventListener('wheel', wheel, { passive: false })
+    return () => element.removeEventListener('wheel', wheel)
+  }, [img, scroll, setState])
+  const moveScroll = (direction) => {
+    const next = scroll?.[direction]
+    if (!next || Date.now() - scrollTime.current < 450) return
+    scrollTime.current = Date.now()
+    setState(next === '$base' ? null : next)
+  }
   return (
     <div className="relative h-full overflow-auto bg-background">
       <TopBar manifest={manifest} mode={mode} setMode={setMode} hasChanges={hasChanges} overlaid={overlaid} stats={stats} platforms={platforms} platform={platform} setPlatform={setPlatform} variants={variants} variant={variant} setVariant={setVariant} onOpenBuffer={open} onCloseChanges={closeChanges} />
@@ -79,12 +93,12 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
             </p>
           )}
           {img ? (
-            <div className="max-w-full overflow-y-auto rounded-xl border" style={{ width: `min(100%, calc(${aspect * 100}vh - ${aspect * 300}px))`, maxHeight: 'calc(100vh - 300px)' }} onWheel={(event) => { if (Math.abs(event.deltaY) > 10) moveScroll(event.deltaY > 0 ? 'next' : 'previous') }} onTouchStart={(event) => { touchStart.current = event.touches[0]?.clientY }} onTouchEnd={(event) => { const delta = touchStart.current - event.changedTouches[0]?.clientY; if (Math.abs(delta) > 30) moveScroll(delta > 0 ? 'next' : 'previous') }}>
+            <div ref={phone} className="max-w-full overflow-y-auto overscroll-contain rounded-xl border" style={{ width: `min(100%, calc(${frameAspect * 100}vh - ${frameAspect * 300}px))`, maxHeight: 'calc(100vh - 300px)' }} onTouchStart={(event) => { touchStart.current = event.touches[0]?.clientY }} onTouchEnd={(event) => { const delta = touchStart.current - event.changedTouches[0]?.clientY; if (Math.abs(delta) > 30) moveScroll(delta > 0 ? 'next' : 'previous') }}>
               <div className="relative leading-none">
               <img src={img} alt={`Capture: ${nodeLabel(current)}`} className="block h-auto w-full" />
               {links.map((link, i) => {
                 const [x, y, w, h] = link.rect
-                return <button key={`${link.to}-${i}`} type="button" aria-label={link.label} title={link.label} onClick={() => link.action === 'back' ? back() : navigate(link.to, link.targetState ?? null)} className={`absolute rounded border-2 hover:border-primary/60 hover:bg-primary/25 focus-visible:border-primary/60 focus-visible:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${hoverOnly ? 'border-transparent bg-transparent' : 'border-primary/60 bg-primary/10'}`} style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
+                return <button key={`${link.to}-${i}`} type="button" disabled={link.action === 'back' && !canBack} aria-label={link.label} title={link.label} onClick={() => link.action === 'back' ? back() : navigate(link.to, link.targetState ?? null)} className={`absolute rounded border-2 disabled:opacity-30 hover:border-primary/60 hover:bg-primary/25 focus-visible:border-primary/60 focus-visible:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${hoverOnly ? 'border-transparent bg-transparent' : 'border-primary/60 bg-primary/10'}`} style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
               })}
               </div>
             </div>
@@ -97,11 +111,18 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
             {map.nodes.map((node) => <option key={node.id} value={node.id}>{nodeLabel(node)}</option>)}
           </select>
           {(capture?.states ?? []).length > 0 && <div className="mt-4">
-            <label className="block text-xs text-muted-foreground" htmlFor="prototype-state">State</label>
-            <select id="prototype-state" value={state ?? ''} onChange={(event) => setState(event.target.value || null)} className="mt-2 w-full rounded border bg-background p-2">
-              <option value="">Base</option>
-              {capture.states.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
-            </select>
+            <div className="text-xs text-muted-foreground">State</div>
+            {capture.states.length <= 3 ? (
+              <ToggleGroup type="single" variant="outline" size="sm" spacing={0} value={state ?? '$base'} onValueChange={(value) => { if (value) setState(value === '$base' ? null : value) }} aria-label="State" className="mt-2 flex w-full flex-wrap">
+                <ToggleGroupItem value="$base" className="h-8 flex-1 text-xs data-[state=on]:bg-foreground data-[state=on]:text-background">Base</ToggleGroupItem>
+                {capture.states.map((item) => <ToggleGroupItem key={item.name} value={item.name} className="h-8 flex-1 text-xs data-[state=on]:bg-foreground data-[state=on]:text-background">{item.name}</ToggleGroupItem>)}
+              </ToggleGroup>
+            ) : (
+              <select aria-label="State" value={state ?? ''} onChange={(event) => setState(event.target.value || null)} className="mt-2 w-full rounded border bg-background p-2">
+                <option value="">Base</option>
+                {capture.states.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+              </select>
+            )}
           </div>}
           <div className="mt-4 border-t pt-4">
             <div className="text-xs text-muted-foreground">Highlights</div>

@@ -18,5 +18,7 @@ export function validatePrototype(prototype, sourceSha256, nodes, axis, sourceId
     const state = prototype.scroll?.[direction]
     if (typeof state === 'string' && state && exists(sourceId, state === '$base' ? null : state)) scroll[direction] = state
   }
-  return links.length || Object.keys(scroll).length ? { sourceSha256, links, ...(Object.keys(scroll).length ? { scroll } : {}) } : null
+  const viewport = prototype.viewport
+  const validViewport = Number.isFinite(viewport?.width) && viewport.width > 0 && Number.isFinite(viewport?.height) && viewport.height > 0
+  return links.length || Object.keys(scroll).length || validViewport ? { sourceSha256, links, ...(Object.keys(scroll).length ? { scroll } : {}), ...(validViewport ? { viewport: { width: viewport.width, height: viewport.height } } : {}) } : null
 }
