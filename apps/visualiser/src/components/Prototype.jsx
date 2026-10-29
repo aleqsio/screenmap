@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowLeft, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import TopBar from './TopBar'
 import { flowResolution } from '../lib/loadBundle'
 import { nodeLabel } from '../lib/label'
@@ -21,8 +22,9 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
     window.addEventListener('popstate', restore)
     return () => window.removeEventListener('popstate', restore)
   }, [])
-  const toggleHighlights = () => {
-    const next = !hoverOnly
+  const setHighlights = (value) => {
+    if (!value) return
+    const next = value === 'hover'
     const url = new URL(window.location.href)
     if (next) url.searchParams.set('highlights', 'hover')
     else url.searchParams.delete('highlights')
@@ -76,7 +78,6 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
             <Button variant="outline" size="sm" onClick={() => { setHistory([]); if (start) setScreen(start) }} disabled={!start}><RotateCcw /> Start</Button>
             <strong className="min-w-0 truncate text-sm">{current ? nodeLabel(current) : 'No screens'}</strong>
           </div>
-          <Button variant="outline" size="sm" aria-pressed={hoverOnly} onClick={toggleHighlights}>Highlights on hover only: {hoverOnly ? 'On' : 'Off'}</Button>
           {capture && (capture.status !== 'ok' || capture.needsNavigation || capture.note) && (
             <p className="w-full max-w-md rounded-md border bg-muted px-3 py-2 text-sm" role="status">
               {capture.status === 'auth-wall' ? 'Authentication state differs' : capture.status !== 'ok' ? capture.status : 'Capture note'}{capture.note ? `: ${capture.note}` : capture.needsNavigation ? ': requires navigation' : ''}
@@ -84,7 +85,7 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
           )}
           {img ? (
             <div className="relative inline-block max-w-full leading-none">
-              <img src={img} alt={`Capture: ${nodeLabel(current)}`} className="block h-auto max-h-[calc(100vh-340px)] max-w-full rounded-xl border object-contain" />
+              <img src={img} alt={`Capture: ${nodeLabel(current)}`} className="block h-auto max-h-[calc(100vh-300px)] max-w-full rounded-xl border object-contain" />
               {links.map((link, i) => {
                 const [x, y, w, h] = link.rect
                 return <button key={`${link.to}-${i}`} type="button" aria-label={link.label} title={link.label} onClick={() => navigate(link.to)} className={`absolute rounded border-2 hover:border-primary/60 hover:bg-primary/25 focus-visible:border-primary/60 focus-visible:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${hoverOnly ? 'border-transparent bg-transparent' : 'border-primary/60 bg-primary/10'}`} style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
@@ -98,6 +99,13 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
           <select id="prototype-screen" value={current?.id ?? ''} onChange={(event) => navigate(event.target.value)} className="mt-2 w-full rounded border bg-background p-2">
             {map.nodes.map((node) => <option key={node.id} value={node.id}>{nodeLabel(node)}</option>)}
           </select>
+          <div className="mt-4 border-t pt-4">
+            <div className="text-xs text-muted-foreground">Highlights</div>
+            <ToggleGroup type="single" variant="outline" size="sm" spacing={0} value={hoverOnly ? 'hover' : 'always'} onValueChange={setHighlights} aria-label="Highlights" className="mt-2 flex w-full">
+              <ToggleGroupItem value="always" className="h-8 flex-1 text-xs data-[state=on]:bg-foreground data-[state=on]:text-background">Always</ToggleGroupItem>
+              <ToggleGroupItem value="hover" className="h-8 flex-1 text-xs data-[state=on]:bg-foreground data-[state=on]:text-background">On hover</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
           <h2 className="mt-5 font-semibold">Connected screens</h2>
           <p className="mt-1 text-xs text-muted-foreground">Routes found in the map and recorded flows.</p>
           <div className="mt-2 flex max-h-[45vh] flex-col gap-1 overflow-auto">
