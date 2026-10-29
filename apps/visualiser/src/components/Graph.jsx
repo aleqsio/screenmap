@@ -454,7 +454,7 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, pla
         edges={rfEdges}
         nodeTypes={nodeTypes}
         fitView
-        fitViewOptions={{ padding: 0.1 }}
+        fitViewOptions={{ padding: 0.25 }}
         minZoom={0.02}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
@@ -488,7 +488,7 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, pla
         edgesFocusable={false}
       >
         <Background variant={BackgroundVariant.Dots} gap={22} size={1.4} color="var(--canvas-dot)" />
-        {!SHOT && <Controls showInteractive={false} />}
+        {!SHOT && <Controls showInteractive={false} fitViewOptions={{ padding: 0.25 }} />}
         {!SHOT && <MiniMap
           pannable
           zoomable
