@@ -10,6 +10,10 @@ import { parse as parseYaml } from 'yaml'
 // per-edge diff annotations.
 export async function loadBundle(buffer) {
   const files = unzipSync(new Uint8Array(buffer))
+  if (!files['manifest.json']) {
+    const inner = Object.keys(files).find((n) => n.endsWith('.scrmap') && !n.startsWith('__MACOSX/'))
+    if (inner) return loadBundle(files[inner])
+  }
   const text = (name) => {
     const f = files[name]
     if (!f) throw new Error(`bundle is missing ${name}`)
