@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createNavigation } from './navigation'
 import { loadBundle, mergeBundles, sameApp, platformsOf, withPlatform, variantsOf, withVariant } from './loadBundle'
 
 // A viewer session holds up to two bundles: the Map (a plain .scrmap) and the
@@ -24,48 +25,28 @@ async function fetchBundle(url) {
 }
 
 export function useBundles() {
-  const initial = new URLSearchParams(window.location.search)
+  const [navigation] = useState(() => createNavigation(window))
+  const [location, setLocation] = useState(() => navigation.read())
+  const { mode, screen, state, platform, variant, highlights, canBack } = location
   const [plain, setPlain] = useState(null)
   const [changes, setChanges] = useState(null)
-  const [mode, setModeState] = useState(['map', 'changes', 'prototype'].includes(initial.get('mode')) ? initial.get('mode') : 'map')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [demoAvailable, setDemoAvailable] = useState(false)
   const [gen, setGen] = useState(0)
-  const [platform, setPlatformState] = useState(initial.get('platform'))
-  const [variant, setVariantState] = useState(initial.get('variant'))
-  const [screen, setScreenState] = useState(initial.get('screen'))
-
-  const update = useCallback((key, value, setter, replace = false) => {
-    const url = new URL(window.location.href)
-    if (value) url.searchParams.set(key, value)
-    else url.searchParams.delete(key)
-    window.history[replace ? 'replaceState' : 'pushState'](window.history.state, '', url)
-    setter(value)
-  }, [])
-  const setMode = useCallback((value) => update('mode', value, setModeState), [update])
-  const setPlatform = useCallback((value) => update('platform', value, setPlatformState), [update])
-  const setVariant = useCallback((value) => update('variant', value, setVariantState), [update])
-  const setScreen = useCallback((value, replace = false) => update('screen', value, setScreenState, replace), [update])
-
-  useEffect(() => {
-    const restore = () => {
-      const p = new URLSearchParams(window.location.search)
-      setModeState(['map', 'changes', 'prototype'].includes(p.get('mode')) ? p.get('mode') : 'map')
-      setPlatformState(p.get('platform'))
-      setVariantState(p.get('variant'))
-      setScreenState(p.get('screen'))
-    }
-    window.addEventListener('popstate', restore)
-    return () => window.removeEventListener('popstate', restore)
-  }, [])
-
-  useEffect(() => {
-    const value = new URLSearchParams(window.location.search).get('mode')
-    if (value && !['map', 'changes', 'prototype'].includes(value)) update('mode', 'map', setModeState, true)
-  }, [update])
+  useEffect(() => { const unsubscribe = navigation.subscribe(setLocation); return unsubscribe }, [navigation])
+  const setMode = useCallback((value) => navigation.change({ mode: value }), [navigation])
+  const setPlatform = useCallback((value) => navigation.change({ platform: value }), [navigation])
+  const setVariant = useCallback((value) => navigation.change({ variant: value }), [navigation])
+  const setScreen = useCallback((value, replace = false) => navigation.change({ screen: value, state: null }, { replace }), [navigation])
+  const visit = useCallback((value, captureState = null) => navigation.visit(value, captureState), [navigation])
+  const setState = useCallback((value) => navigation.visit(screen, value), [navigation, screen])
+  const setHighlights = useCallback((value) => { if (value) navigation.change({ highlights: value === 'hover' ? 'hover' : null }) }, [navigation])
+  const back = useCallback(() => navigation.back(), [navigation])
+  useEffect(() => { const modeParam = new URLSearchParams(window.location.search).get('mode'); if (modeParam && !['map', 'changes', 'prototype'].includes(modeParam)) navigation.change({ mode: 'map' }, { replace: true }) }, [navigation])
 
   const place = useCallback((loaded) => {
+    navigation.reset()
     if (loaded.diff) {
       setChanges(loaded)
       setMode('changes')
@@ -73,7 +54,7 @@ export function useBundles() {
       setPlain(loaded)
     }
     setGen((g) => g + 1)
-  }, [setMode])
+  }, [setMode, navigation])
 
   const open = useCallback(
     async (buffer) => {
@@ -106,6 +87,7 @@ export function useBundles() {
         fetchBundle(TEMPLATES.bluesky.map),
         fetchBundle(TEMPLATES.bluesky.changes).catch(() => null),
       ])
+      navigation.reset()
       setPlain(map)
       if (diff?.diff) setChanges(diff)
       setMode('map')
@@ -116,7 +98,7 @@ export function useBundles() {
     } finally {
       setBusy(false)
     }
-  }, [setMode])
+  }, [setMode, navigation])
 
   // initial sources
   useEffect(() => {
@@ -157,7 +139,7 @@ export function useBundles() {
           const b = await fetchBundle(wantChanges)
           if (b.diff) {
             setChanges(b)
-            if (openOnChanges && !params.has('mode')) update('mode', 'changes', setModeState, true)
+            if (openOnChanges && !params.has('mode')) navigation.change({ mode: 'changes' }, { replace: true })
           }
         }
       } catch (e) {
@@ -166,7 +148,7 @@ export function useBundles() {
         setBusy(false)
       }
     })()
-  }, [update])
+  }, [navigation])
 
   // drop a bundle anywhere — landing or over an open graph
   useEffect(() => {
@@ -199,9 +181,9 @@ export function useBundles() {
     [variants, variant]
   )
   useEffect(() => {
-    if (platform && platforms.length && platform !== activePlatform) update('platform', activePlatform, setPlatformState, true)
-    if (variant && variants.length && variant !== activeVariant) update('variant', activeVariant, setVariantState, true)
-  }, [platform, platforms, activePlatform, variant, variants, activeVariant, update])
+    if (platform && platforms.length && platform !== activePlatform) navigation.change({ platform: activePlatform }, { replace: true })
+    if (variant && variants.length && variant !== activeVariant) navigation.change({ variant: activeVariant }, { replace: true })
+  }, [platform, platforms, activePlatform, variant, variants, activeVariant, navigation])
   const plainP = useMemo(() => withVariant(withPlatform(plain, activePlatform), activeVariant), [plain, activePlatform, activeVariant])
   const changesP = useMemo(() => withVariant(withPlatform(changes, activePlatform), activeVariant), [changes, activePlatform, activeVariant])
 
@@ -229,7 +211,7 @@ export function useBundles() {
     plain, changes, bundle, mode, setMode,
     hasChanges: !!changes, overlaid,
     platforms, platform: activePlatform, setPlatform,
-    variants, variant: activeVariant, setVariant, screen, setScreen,
+    variants, variant: activeVariant, setVariant, screen, setScreen, state, setState, highlights, setHighlights, canBack, visit, back,
     open, closeChanges, loadDemo, busy, error, demoAvailable, gen,
   }
 }

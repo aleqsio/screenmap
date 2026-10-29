@@ -13,9 +13,9 @@
 // See docs/scrmap-format.md for the format contract.
 
 import { execFileSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
+import { attachPrototype } from './prototype-producer.mjs'
 
 const args = process.argv.slice(2)
 let projectRoot = '.'
@@ -49,7 +49,6 @@ try {
   const data = JSON.parse(fs.readFileSync(path.join(base, 'hotspots.json'), 'utf8'))
   if (data.version === 1 && Array.isArray(data.captures)) hotspots = data.captures
 } catch {}
-const routeIds = new Set(graph.routes.map((r) => r.id))
 let captureStatus = {}
 try {
   captureStatus = JSON.parse(fs.readFileSync(path.join(base, 'capture-status.json'), 'utf8'))
@@ -102,11 +101,6 @@ const captureOf = (r, pf) => {
     .filter((f) => f.startsWith(r.slug + '--'))
     .map((f) => ({ name: f.replace(/\.\w+$/, '').slice(r.slug.length + 2), screenshot: prefix + f }))
     .sort((a, b) => a.name.localeCompare(b.name))
-  const record = hotspots.find((entry) => entry?.node === r.id && entry.variant === pf)
-  const sourceSha256 = baseShot && record ? createHash('sha256').update(fs.readFileSync(path.join(shotsDirFor(pf), baseShot))).digest('hex') : null
-  const links = record && sourceSha256 && sourceSha256 === record.sourceSha256 && Array.isArray(record.links)
-    ? record.links.filter((link) => typeof link?.label === 'string' && link.label.trim() && routeIds.has(link.to) && Array.isArray(link.rect) && link.rect.length === 4 && link.rect.every(Number.isFinite) && link.rect[0] >= 0 && link.rect[1] >= 0 && link.rect[2] > 0 && link.rect[3] > 0 && link.rect[0] + link.rect[2] <= 1 && link.rect[1] + link.rect[3] <= 1)
-    : []
   return {
     status: cs.status ?? (baseShot ? 'ok' : 'missing'),
     note: cs.note ?? null,
@@ -114,7 +108,6 @@ const captureOf = (r, pf) => {
     needsNavigation: cs.needsNavigation ?? r.reach === 'navigation-only',
     screenshot: baseShot ? prefix + baseShot : null,
     states,
-    ...(links.length ? { prototype: { sourceSha256, links } } : {}),
   }
 }
 
@@ -139,6 +132,7 @@ const nodes = graph.routes.map((r) => {
   }
 })
 
+attachPrototype(nodes, axis, hotspots, Object.fromEntries(axis.map((pf) => [pf, shotsDirFor(pf)])))
 const map = { nodes, edges: graph.edges ?? [], flows: [] }
 // A flow sidecar records the device it was recorded on; with several platforms
 // prefer the one whose sidecar names that platform, else fall back to any.

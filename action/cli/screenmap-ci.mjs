@@ -288,8 +288,20 @@ async function baseline() {
   }
 
   const out = path.resolve(opts.out ?? path.join(work, `${fileSafe(appName)}-${(commit ?? 'local').slice(0, 7)}.scrmap`))
+  const configuredHotspots = readJson(path.join(project, '.screenmap', 'out', 'hotspots.json'), {})
+  const savedHotspots = configuredHotspots.version === 1 && Array.isArray(configuredHotspots.captures) ? [...configuredHotspots.captures] : []
+  if (prev) for (const platform of platforms) {
+    const side = baselineSide(prev, platform)
+    for (const node of prev.map.nodes) {
+      const capture = side.capture(node)
+      for (const state of [capture, ...(capture?.states ?? [])]) {
+        if (state?.prototype) savedHotspots.push({ node: node.id, variant: platform, ...(state.name ? { state: state.name } : {}), ...state.prototype })
+      }
+    }
+  }
   packBaseline({
     graph, flowsDir: flowsDirForPack, appName, commit, ref, out,
+    hotspots: savedHotspots,
     platforms: sides.map((s) => ({ platform: s.platform, device: s.device, screensDir: s.screensDir })),
     captureStatus: multi ? Object.fromEntries(sides.map((s) => [s.platform, s.captureStatus])) : sides[0].captureStatus,
   })
@@ -778,11 +790,18 @@ async function merge() {
   const sides = []
   let first = null
   const captureStatus = {}
+  const hotspots = []
   for (const { platform, file } of parsed) {
     if (!exists(file)) { log(`merge: skipping ${platform} — ${file} not found`); continue }
     const b = readBaseline(file, path.join(work, platform))
     first ??= b
     const side = baselineSide(b, platform)
+    for (const node of b.map.nodes) {
+      const capture = side.capture(node)
+      for (const state of [capture, ...(capture?.states ?? [])]) {
+        if (state?.prototype) hotspots.push({ node: node.id, variant: platform, ...(state.name ? { state: state.name } : {}), ...state.prototype })
+      }
+    }
     // Refuse a bundle that does not carry the platform it is being merged as.
     // Two artifact paths swapped in a workflow is an easy mistake to make and an
     // impossible one to spot afterwards: the map would show iOS screenshots
@@ -799,7 +818,7 @@ async function merge() {
   if (sides.length === 1) log(`merge: only ${sides[0].platform} was available — writing a single-platform map`)
   const out = path.resolve(opts.out ?? path.join(work, 'merged.scrmap'))
   packBaseline({
-    graph: first.graph, platforms: sides, flowsDir: first.flowsDir,
+    graph: first.graph, platforms: sides, flowsDir: first.flowsDir, hotspots,
     captureStatus: sides.length > 1 ? captureStatus : captureStatus[sides[0].platform],
     appName: opts.app ?? first.manifest.app?.name ?? 'app',
     commit: opts.commit ?? first.manifest.source?.commit ?? null,

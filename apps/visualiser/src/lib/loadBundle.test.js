@@ -78,7 +78,7 @@ test('pack-map --variants output loads through loadBundle', async () => {
   const out = path.join(root, '.screenmap', 'out')
   for (const v of ['en-light', 'ar-dark']) fs.mkdirSync(path.join(out, 'screens', v), { recursive: true })
   fs.writeFileSync(path.join(out, 'graph.json'), JSON.stringify({ appName: 'T', routes: [{ id: 'feed', slug: 'feed', urlPath: '/feed' }, { id: 'profile', slug: 'profile', urlPath: '/profile' }], edges: [] }))
-  for (const v of ['en-light', 'ar-dark']) fs.writeFileSync(path.join(out, 'screens', v, 'feed.png'), v === 'en-light' ? 'x' : 'changed')
+  for (const v of ['en-light', 'ar-dark']) { fs.writeFileSync(path.join(out, 'screens', v, 'feed.png'), v === 'en-light' ? 'x' : 'changed'); fs.writeFileSync(path.join(out, 'screens', v, 'profile.png'), 'p') }
   const sha = createHash('sha256').update('x').digest('hex')
   const links = [{ label: 'Profile', to: 'profile', rect: [0.1, 0.2, 0.3, 0.4] }, { label: 'Invalid rectangle', to: 'profile', rect: [0.9, 0, 0.2, 0.1] }, { label: 'Unknown', to: 'unknown', rect: [0, 0, 0.1, 0.1] }]
   fs.writeFileSync(path.join(out, 'hotspots.json'), JSON.stringify({ version: 1, captures: [{ node: 'feed', variant: 'en-light', sourceSha256: sha, links }, { node: 'feed', variant: 'ar-dark', sourceSha256: sha, links }] }))

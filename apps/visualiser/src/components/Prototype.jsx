@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { ArrowLeft, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -6,7 +6,7 @@ import TopBar from './TopBar'
 import { flowResolution } from '../lib/loadBundle'
 import { nodeLabel } from '../lib/label'
 
-export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid, platforms, platform, setPlatform, variants, variant, setVariant, screen, setScreen, open, closeChanges }) {
+export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid, platforms, platform, setPlatform, variants, variant, setVariant, screen, setScreen, state, setState, highlights, setHighlights, canBack, visit, back, open, closeChanges }) {
   const { manifest, map, images } = bundle
   const nodes = useMemo(() => new Map(map.nodes.map((n) => [n.id, n])), [map])
   const start = map.nodes.find((n) => n.urlPath === '/' && n.capture.prototype?.links?.length)?.id
@@ -15,30 +15,24 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
     ?? map.nodes.find((n) => n.capture.screenshot && (n.capture.status ?? 'ok') === 'ok')?.id
     ?? map.nodes[0]?.id
   const current = nodes.get(screen) ?? nodes.get(start)
-  const [history, setHistory] = useState([])
-  const [hoverOnly, setHoverOnly] = useState(() => new URLSearchParams(window.location.search).get('highlights') === 'hover')
+  const hoverOnly = highlights === 'hover'
+  const touchStart = useRef(null)
+  const scrollTime = useRef(0)
+  const [aspect, setAspect] = useState(0.46)
+  const baseImage = current?.capture?.screenshot ? images.get(current.capture.screenshot) : null
   useEffect(() => {
-    const restore = () => setHoverOnly(new URLSearchParams(window.location.search).get('highlights') === 'hover')
-    window.addEventListener('popstate', restore)
-    return () => window.removeEventListener('popstate', restore)
-  }, [])
-  const setHighlights = (value) => {
-    if (!value) return
-    const next = value === 'hover'
-    const url = new URL(window.location.href)
-    if (next) url.searchParams.set('highlights', 'hover')
-    else url.searchParams.delete('highlights')
-    window.history.pushState(window.history.state, '', url)
-    setHoverOnly(next)
-  }
-  useEffect(() => {
-    const reset = () => setHistory([])
-    window.addEventListener('popstate', reset)
-    return () => window.removeEventListener('popstate', reset)
-  }, [])
+    if (!baseImage) return
+    const image = new Image()
+    image.onload = () => setAspect(image.naturalWidth / image.naturalHeight)
+    image.src = baseImage
+    return () => { image.onload = null }
+  }, [baseImage])
   useEffect(() => {
     if (current && screen !== current.id) setScreen(current.id, true)
   }, [current, screen, setScreen])
+  useEffect(() => {
+    if (state && current && !(current.capture.states ?? []).some((s) => s.name === state)) setScreen(current.id, true)
+  }, [state, current, setScreen])
   const connections = useMemo(() => {
     if (!current) return []
     const ids = new Set(map.edges.filter((edge) => edge.from === current.id && edge.to && edge.to !== current.id).map((edge) => edge.to))
@@ -50,21 +44,22 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
     }
     return [...ids].map((id) => nodes.get(id)).filter(Boolean)
   }, [current, map, nodes])
-  const navigate = (id) => {
-    if (!nodes.has(id) || id === current?.id) return
-    setHistory((previous) => [...previous, current.id])
-    setScreen(id)
+  const navigate = (id, targetState = null) => {
+    if (!nodes.has(id) || (id === current?.id && targetState === state)) return
+    visit(id, targetState)
   }
-  const back = () => {
-    if (!history.length) return
-    setScreen(history[history.length - 1])
-    setHistory((previous) => previous.slice(0, -1))
+  const moveScroll = (direction) => {
+    const next = displayed?.prototype?.scroll?.[direction]
+    if (!next || Date.now() - scrollTime.current < 450) return
+    scrollTime.current = Date.now()
+    setState(next === '$base' ? null : next)
   }
   const stats = { screens: map.nodes.length, captured: map.nodes.filter((n) => n.capture.screenshot && (n.capture.status ?? 'ok') === 'ok').length, flows: map.flows.length }
   const capture = current?.capture
-  const img = capture?.screenshot ? images.get(capture.screenshot) : null
-  const links = Array.isArray(capture?.prototype?.links) ? capture.prototype.links.filter((link) =>
-    typeof link?.label === 'string' && nodes.has(link.to) && Array.isArray(link.rect) && link.rect.length === 4 &&
+  const displayed = state ? capture?.states?.find((s) => s.name === state) ?? capture : capture
+  const img = displayed?.screenshot ? images.get(displayed.screenshot) : null
+  const links = Array.isArray(displayed?.prototype?.links) ? displayed.prototype.links.filter((link) =>
+    typeof link?.label === 'string' && (link.action === 'back' || nodes.has(link.to)) && Array.isArray(link.rect) && link.rect.length === 4 &&
     link.rect.every(Number.isFinite) && link.rect[0] >= 0 && link.rect[1] >= 0 && link.rect[2] > 0 && link.rect[3] > 0 &&
     link.rect[0] + link.rect[2] <= 1 && link.rect[1] + link.rect[3] <= 1
   ) : []
@@ -74,8 +69,8 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
       <main className="mx-auto flex max-w-6xl flex-wrap items-start justify-center gap-6 px-4 pb-6 pt-36">
         <section className="flex min-w-0 flex-1 flex-col items-center gap-3">
           <div className="flex w-full max-w-md items-center gap-2">
-            <Button variant="outline" size="sm" onClick={back} disabled={!history.length}><ArrowLeft /> Back</Button>
-            <Button variant="outline" size="sm" onClick={() => { setHistory([]); if (start) setScreen(start) }} disabled={!start}><RotateCcw /> Start</Button>
+            <Button variant="outline" size="sm" onClick={back} disabled={!canBack}><ArrowLeft /> Back</Button>
+            <Button variant="outline" size="sm" onClick={() => { if (start) visit(start) }} disabled={!start}><RotateCcw /> Start</Button>
             <strong className="min-w-0 truncate text-sm">{current ? nodeLabel(current) : 'No screens'}</strong>
           </div>
           {capture && (capture.status !== 'ok' || capture.needsNavigation || capture.note) && (
@@ -84,12 +79,14 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
             </p>
           )}
           {img ? (
-            <div className="relative inline-block max-w-full leading-none">
-              <img src={img} alt={`Capture: ${nodeLabel(current)}`} className="block h-auto max-h-[calc(100vh-300px)] max-w-full rounded-xl border object-contain" />
+            <div className="max-w-full overflow-y-auto rounded-xl border" style={{ width: `min(100%, calc(${aspect * 100}vh - ${aspect * 300}px))`, maxHeight: 'calc(100vh - 300px)' }} onWheel={(event) => { if (Math.abs(event.deltaY) > 10) moveScroll(event.deltaY > 0 ? 'next' : 'previous') }} onTouchStart={(event) => { touchStart.current = event.touches[0]?.clientY }} onTouchEnd={(event) => { const delta = touchStart.current - event.changedTouches[0]?.clientY; if (Math.abs(delta) > 30) moveScroll(delta > 0 ? 'next' : 'previous') }}>
+              <div className="relative leading-none">
+              <img src={img} alt={`Capture: ${nodeLabel(current)}`} className="block h-auto w-full" />
               {links.map((link, i) => {
                 const [x, y, w, h] = link.rect
-                return <button key={`${link.to}-${i}`} type="button" aria-label={link.label} title={link.label} onClick={() => navigate(link.to)} className={`absolute rounded border-2 hover:border-primary/60 hover:bg-primary/25 focus-visible:border-primary/60 focus-visible:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${hoverOnly ? 'border-transparent bg-transparent' : 'border-primary/60 bg-primary/10'}`} style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
+                return <button key={`${link.to}-${i}`} type="button" aria-label={link.label} title={link.label} onClick={() => link.action === 'back' ? back() : navigate(link.to, link.targetState ?? null)} className={`absolute rounded border-2 hover:border-primary/60 hover:bg-primary/25 focus-visible:border-primary/60 focus-visible:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${hoverOnly ? 'border-transparent bg-transparent' : 'border-primary/60 bg-primary/10'}`} style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
               })}
+              </div>
             </div>
           ) : <p className="rounded-md border px-4 py-8 text-sm text-muted-foreground">No capture for this screen.</p>}
           <p className="text-center text-xs text-muted-foreground">Captured prototype. {hoverOnly ? 'Hover over links to reveal them.' : 'Highlighted links open saved screens.'}</p>
@@ -99,6 +96,13 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
           <select id="prototype-screen" value={current?.id ?? ''} onChange={(event) => navigate(event.target.value)} className="mt-2 w-full rounded border bg-background p-2">
             {map.nodes.map((node) => <option key={node.id} value={node.id}>{nodeLabel(node)}</option>)}
           </select>
+          {(capture?.states ?? []).length > 0 && <div className="mt-4">
+            <label className="block text-xs text-muted-foreground" htmlFor="prototype-state">State</label>
+            <select id="prototype-state" value={state ?? ''} onChange={(event) => setState(event.target.value || null)} className="mt-2 w-full rounded border bg-background p-2">
+              <option value="">Base</option>
+              {capture.states.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+            </select>
+          </div>}
           <div className="mt-4 border-t pt-4">
             <div className="text-xs text-muted-foreground">Highlights</div>
             <ToggleGroup type="single" variant="outline" size="sm" spacing={0} value={hoverOnly ? 'hover' : 'always'} onValueChange={setHighlights} aria-label="Highlights" className="mt-2 flex w-full">

@@ -4,6 +4,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { attachPrototype } from '../../../plugins/screenmap/skills/screenmap/scripts/prototype-producer.mjs'
 import { readJson, writeJson, ensureDir, log } from './util.mjs'
 
 export const SKILL_SCRIPTS = path.resolve(new URL('../../../plugins/screenmap/skills/screenmap/scripts', import.meta.url).pathname)
@@ -134,7 +135,7 @@ function captureFor(r, cs, shotFiles, prefix) {
 // move into `screens/<platform>/` and each node gains a `captures` map; `capture`
 // keeps mirroring the FIRST platform so a v2 viewer still renders the map
 // instead of showing every screen as missing.
-export function packBaseline({ graph, platforms, screensDir, flowsDir, captureStatus = {}, appName, device, commit, ref, out }) {
+export function packBaseline({ graph, platforms, screensDir, flowsDir, captureStatus = {}, hotspots = [], appName, device, commit, ref, out }) {
   // legacy single-platform call shape
   if (!platforms) platforms = [{ platform: 'ios', device, screensDir }]
   const multi = platforms.length > 1
@@ -159,6 +160,7 @@ export function packBaseline({ graph, platforms, screensDir, flowsDir, captureSt
       ...(multi ? { captures: per } : {}),
     }
   })
+  attachPrototype(nodes, sides.map((s) => s.platform), hotspots, Object.fromEntries(sides.map((s) => [s.platform, s.screensDir])))
   const map = { nodes, edges: graph.edges ?? [], flows: [] }
   const manifest = {
     formatVersion: multi ? 3 : 2, flowFormat: 'argent', generator: 'screenmap-ci/0.1',
