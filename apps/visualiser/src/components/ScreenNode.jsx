@@ -10,7 +10,7 @@ const BROKEN = {
   'error-boundary': { icon: '⛌', label: 'crashes on deep link' },
   'not-found': { icon: '∅', label: 'params hit nothing real' },
   loading: { icon: '◌', label: 'stuck loading' },
-  'auth-wall': { icon: '🔒', label: 'behind sign-in' },
+  'auth-wall': { icon: '🔒', label: 'authentication state' },
   missing: { icon: '⚠', label: 'no capture' },
 }
 const DIFF_TAG = { A: '+ added', M: '± changed', D: '− removed' }

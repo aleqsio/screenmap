@@ -104,6 +104,38 @@ the first one. `capture-status.json` is keyed by variant id first
 (`{"ar-dark": {"<routeId>": {…}}}`). Pack with
 `pack-map.mjs <project> --variants en-light,ar-dark`.
 
+## Prototype links
+
+Optional `.screenmap/out/hotspots.json` binds clickable areas to exact captures:
+
+```json
+{
+  "version": 1,
+  "captures": [{
+    "node": "Home",
+    "variant": "en-light",
+    "sourceSha256": "<SHA-256 of the screenshot file>",
+    "links": [{ "label": "Profile", "to": "Profile", "targetState": "menu", "rect": [0.7, 0.1, 0.2, 0.1] }],
+    "scroll": { "next": "scrolled" },
+    "viewport": { "width": 390, "height": 844 }
+  }]
+}
+```
+
+`rect` is `[x, y, width, height]`, normalized to the screenshot. Set `state`
+on a capture entry to bind it to `slug--state.png`; omit it for the base.
+An optional `targetState` opens a named state on the destination. Use
+`{"label":"Back","action":"back","rect":[...]}` for a Back hotspot.
+`scroll.next` and `scroll.previous` name other captured positions on the same
+screen; `$base` names the base capture. For a tall screenshot, `viewport`
+sets the phone frame's positive width and height in the same units, so the
+image can scroll inside it. For a
+single-platform bundle, use the platform id as `variant`. The packer adds
+`capture.prototype` only when the image hash matches. It excludes links with
+unknown destinations or rectangles outside the image. Recheck coordinates and
+update the hash after changing a screenshot. The viewer checks the hash again
+when it opens a bundle. Older bundles need no hotspots.
+
 ## manifest.json
 
 ```jsonc

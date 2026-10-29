@@ -15,6 +15,7 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { attachPrototype } from './prototype-producer.mjs'
 
 const args = process.argv.slice(2)
 let projectRoot = '.'
@@ -43,6 +44,11 @@ projectRoot = path.resolve(projectRoot)
 const base = path.join(projectRoot, '.screenmap', 'out')
 
 const graph = JSON.parse(fs.readFileSync(path.join(base, 'graph.json'), 'utf8'))
+let hotspots = []
+try {
+  const data = JSON.parse(fs.readFileSync(path.join(base, 'hotspots.json'), 'utf8'))
+  if (data.version === 1 && Array.isArray(data.captures)) hotspots = data.captures
+} catch {}
 let captureStatus = {}
 try {
   captureStatus = JSON.parse(fs.readFileSync(path.join(base, 'capture-status.json'), 'utf8'))
@@ -126,6 +132,7 @@ const nodes = graph.routes.map((r) => {
   }
 })
 
+attachPrototype(nodes, axis, hotspots, Object.fromEntries(axis.map((pf) => [pf, shotsDirFor(pf)])))
 const map = { nodes, edges: graph.edges ?? [], flows: [] }
 // A flow sidecar records the device it was recorded on; with several platforms
 // prefer the one whose sidecar names that platform, else fall back to any.

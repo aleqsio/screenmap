@@ -1,5 +1,31 @@
 import { unzipSync } from 'fflate'
 import { parse as parseYaml } from 'yaml'
+import { validatePrototype } from '../../../../plugins/screenmap/skills/screenmap/scripts/prototype-capture.mjs'
+
+async function validateCaptures(map, manifest, files, prefix = '') {
+  const hash = async (name) => {
+    if (!files[prefix + name] || !globalThis.crypto?.subtle) return null
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', files[prefix + name])
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+  }
+  const tasks = []
+  for (const node of map.nodes) {
+    const axes = node.captures ? Object.keys(node.captures) : [null]
+    for (const axis of axes) {
+      const capture = axis == null ? node.capture : node.captures[axis]
+      for (const state of [capture, ...(capture?.states ?? [])]) {
+        if (!state?.prototype) continue
+        tasks.push(hash(state.screenshot).then((sha) => {
+          const valid = validatePrototype(state.prototype, sha, map.nodes, axis, node.id)
+          if (valid) state.prototype = valid
+          else delete state.prototype
+        }))
+      }
+    }
+    if (node.captures) node.capture = node.captures[manifest.variants?.[0]?.id ?? manifest.app?.platforms?.[0]?.platform ?? Object.keys(node.captures)[0]] ?? node.capture
+  }
+  await Promise.all(tasks)
+}
 
 // Parses a .scrmap zip (ArrayBuffer) into { manifest, map, images: Map<path, objectURL> }.
 // v1 bundles inline JSON flows in map.json; v2 bundles ship argent flow YAML
@@ -24,6 +50,7 @@ export async function loadBundle(buffer) {
     throw new Error(`unsupported formatVersion ${manifest.formatVersion}`)
   }
   const map = JSON.parse(text('map.json'))
+  await validateCaptures(map, manifest, files)
   if (manifest.formatVersion >= 2) {
     map.flows = Object.keys(files)
       .filter((n) => /^flows\/.+\.yaml$/.test(n))
@@ -52,13 +79,14 @@ export async function loadBundle(buffer) {
 // .diff.scrmap → the internal bundle shape. Head is the primary graph; base-only
 // (removed) nodes and edges are merged in so the map shows what disappeared.
 // Screenshot paths get side-prefixed keys ("head/screens/…") into `images`.
-function loadDiffBundle(files, manifest, text) {
+async function loadDiffBundle(files, manifest, text) {
   if (![1, 2].includes(manifest.formatVersion)) {
     throw new Error(`unsupported diff formatVersion ${manifest.formatVersion}`)
   }
   const diff = JSON.parse(text('diff.json'))
   const baseMap = JSON.parse(text('base/map.json'))
   const headMap = JSON.parse(text('head/map.json'))
+  await Promise.all([validateCaptures(baseMap, manifest, files, 'base/'), validateCaptures(headMap, manifest, files, 'head/')])
 
   const images = new Map()
   for (const [name, data] of Object.entries(files)) {
