@@ -4,6 +4,8 @@
 // Usage: node render-map.mjs [graphPath] [--shots <dir>] [--out <path>] [--no-embed]
 //   graphPath  default: ./.screenmap/out/graph.json
 //   --shots    default: <graph dir>/screens
+//              (a variants capture lives in screens/<variant>/: render one with
+//              --shots <graph dir>/screens/<variant>)
 //   --out      default: <graph dir>/map.html
 //
 // Screenshot naming contract:
