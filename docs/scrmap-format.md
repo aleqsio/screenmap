@@ -104,6 +104,28 @@ the first one. `capture-status.json` is keyed by variant id first
 (`{"ar-dark": {"<routeId>": {…}}}`). Pack with
 `pack-map.mjs <project> --variants en-light,ar-dark`.
 
+## Prototype links
+
+Optional `.screenmap/out/hotspots.json` binds clickable areas to exact captures:
+
+```json
+{
+  "version": 1,
+  "captures": [{
+    "node": "Home",
+    "variant": "en-light",
+    "sourceSha256": "<SHA-256 of the screenshot file>",
+    "links": [{ "label": "Profile", "to": "Profile", "rect": [0.7, 0.1, 0.2, 0.1] }]
+  }]
+}
+```
+
+`rect` is `[x, y, width, height]`, normalized to the screenshot. For a
+single-platform bundle, use the platform id as `variant`. The packer adds
+`capture.prototype` only when the image hash matches. It excludes links with
+unknown destinations or rectangles outside the image. Recheck coordinates and
+update the hash after changing a screenshot. Older bundles need no hotspots.
+
 ## manifest.json
 
 ```jsonc

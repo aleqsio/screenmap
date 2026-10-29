@@ -33,13 +33,13 @@ function statusBadge(node) {
 
 const HIDDEN_STEPS = ['wait', 'screenshot']
 
-export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, platforms, platform, setPlatform, variants, variant, setVariant, onOpenBuffer, onCloseChanges }) {
+export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, platforms, platform, setPlatform, variants, variant, setVariant, onOpenBuffer, onCloseChanges, screen, setScreen }) {
   const { manifest, map, images, diff } = bundle
   const diffMode = mode === 'changes' && !!diff
   const [positions, setPositions] = useState(null)
   const [selectedFlow, setSelectedFlow] = useState(null)
   const [step, setStep] = useState(0)
-  const [selectedNode, setSelectedNode] = useState(null)
+  const [selectedNode, setSelectedNode] = useState(screen)
   const [selectedEdge, setSelectedEdge] = useState(null) // { key, from, to, raws }
   const [neighboursMode, setNeighboursMode] = useState(false)
   const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 900)
@@ -455,10 +455,11 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, pla
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.1 }}
-        minZoom={0.2}
+        minZoom={0.02}
         maxZoom={2}
         proOptions={{ hideAttribution: true }}
         onNodeClick={(_, n) => {
+          setScreen(n.id)
           setSelectedEdge(null)
           setNeighboursMode(false)
           if (selectedNode === n.id) { setSelectedNode(null); setSelectedFlow(null); return }

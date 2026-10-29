@@ -24,15 +24,46 @@ async function fetchBundle(url) {
 }
 
 export function useBundles() {
+  const initial = new URLSearchParams(window.location.search)
   const [plain, setPlain] = useState(null)
   const [changes, setChanges] = useState(null)
-  const [mode, setMode] = useState('map') // 'map' | 'changes'
+  const [mode, setModeState] = useState(['map', 'changes', 'prototype'].includes(initial.get('mode')) ? initial.get('mode') : 'map')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const [demoAvailable, setDemoAvailable] = useState(false)
   const [gen, setGen] = useState(0)
-  const [platform, setPlatform] = useState(null) // null = whichever the bundle lists first
-  const [variant, setVariant] = useState(null) // likewise
+  const [platform, setPlatformState] = useState(initial.get('platform'))
+  const [variant, setVariantState] = useState(initial.get('variant'))
+  const [screen, setScreenState] = useState(initial.get('screen'))
+
+  const update = useCallback((key, value, setter, replace = false) => {
+    const url = new URL(window.location.href)
+    if (value) url.searchParams.set(key, value)
+    else url.searchParams.delete(key)
+    window.history[replace ? 'replaceState' : 'pushState'](window.history.state, '', url)
+    setter(value)
+  }, [])
+  const setMode = useCallback((value) => update('mode', value, setModeState), [update])
+  const setPlatform = useCallback((value) => update('platform', value, setPlatformState), [update])
+  const setVariant = useCallback((value) => update('variant', value, setVariantState), [update])
+  const setScreen = useCallback((value, replace = false) => update('screen', value, setScreenState, replace), [update])
+
+  useEffect(() => {
+    const restore = () => {
+      const p = new URLSearchParams(window.location.search)
+      setModeState(['map', 'changes', 'prototype'].includes(p.get('mode')) ? p.get('mode') : 'map')
+      setPlatformState(p.get('platform'))
+      setVariantState(p.get('variant'))
+      setScreenState(p.get('screen'))
+    }
+    window.addEventListener('popstate', restore)
+    return () => window.removeEventListener('popstate', restore)
+  }, [])
+
+  useEffect(() => {
+    const value = new URLSearchParams(window.location.search).get('mode')
+    if (value && !['map', 'changes', 'prototype'].includes(value)) update('mode', 'map', setModeState, true)
+  }, [update])
 
   const place = useCallback((loaded) => {
     if (loaded.diff) {
@@ -42,7 +73,7 @@ export function useBundles() {
       setPlain(loaded)
     }
     setGen((g) => g + 1)
-  }, [])
+  }, [setMode])
 
   const open = useCallback(
     async (buffer) => {
@@ -63,7 +94,7 @@ export function useBundles() {
     setChanges(null)
     setMode('map')
     setGen((g) => g + 1)
-  }, [])
+  }, [setMode])
 
   // The same pair and the same landing view as ?template=bluesky, so the button
   // and the link hand you an identical viewer. The diff is optional: if only
@@ -85,7 +116,7 @@ export function useBundles() {
     } finally {
       setBusy(false)
     }
-  }, [])
+  }, [setMode])
 
   // initial sources
   useEffect(() => {
@@ -126,7 +157,7 @@ export function useBundles() {
           const b = await fetchBundle(wantChanges)
           if (b.diff) {
             setChanges(b)
-            if (openOnChanges) setMode('changes')
+            if (openOnChanges && !params.has('mode')) update('mode', 'changes', setModeState, true)
           }
         }
       } catch (e) {
@@ -135,7 +166,7 @@ export function useBundles() {
         setBusy(false)
       }
     })()
-  }, [])
+  }, [update])
 
   // drop a bundle anywhere — landing or over an open graph
   useEffect(() => {
@@ -167,6 +198,10 @@ export function useBundles() {
     () => (variants.some((v) => v.id === variant) ? variant : variants[0]?.id ?? null),
     [variants, variant]
   )
+  useEffect(() => {
+    if (platform && platforms.length && platform !== activePlatform) update('platform', activePlatform, setPlatformState, true)
+    if (variant && variants.length && variant !== activeVariant) update('variant', activeVariant, setVariantState, true)
+  }, [platform, platforms, activePlatform, variant, variants, activeVariant, update])
   const plainP = useMemo(() => withVariant(withPlatform(plain, activePlatform), activeVariant), [plain, activePlatform, activeVariant])
   const changesP = useMemo(() => withVariant(withPlatform(changes, activePlatform), activeVariant), [changes, activePlatform, activeVariant])
 
@@ -194,7 +229,7 @@ export function useBundles() {
     plain, changes, bundle, mode, setMode,
     hasChanges: !!changes, overlaid,
     platforms, platform: activePlatform, setPlatform,
-    variants, variant: activeVariant, setVariant,
+    variants, variant: activeVariant, setVariant, screen, setScreen,
     open, closeChanges, loadDemo, busy, error, demoAvailable, gen,
   }
 }

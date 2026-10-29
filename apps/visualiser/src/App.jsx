@@ -2,12 +2,14 @@ import { ReactFlowProvider } from '@xyflow/react'
 import { useBundles } from './lib/useBundles'
 import Landing from './components/Landing'
 import Graph from './components/Graph'
+import Prototype from './components/Prototype'
 
 export default function App() {
   const b = useBundles()
   if (!b.bundle) {
     return <Landing onOpenBuffer={b.open} onLoadDemo={b.loadDemo} demoAvailable={b.demoAvailable} busy={b.busy} error={b.error} />
   }
+  if (b.mode === 'prototype') return <Prototype {...b} />
   // remount on bundle load or mode switch: clean selection, fresh layout
   return (
     <ReactFlowProvider key={`${b.gen}-${b.mode}`}>
@@ -25,6 +27,8 @@ export default function App() {
         setVariant={b.setVariant}
         onOpenBuffer={b.open}
         onCloseChanges={b.closeChanges}
+        screen={b.screen}
+        setScreen={b.setScreen}
       />
     </ReactFlowProvider>
   )
