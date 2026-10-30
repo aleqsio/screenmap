@@ -93,3 +93,38 @@ test('pack-map --variants output loads through loadBundle', async () => {
   assert.throws(() => execFileSync('node', [packer, root, '--variants', 'a', '--platforms', 'ios,android'], { stdio: 'pipe' }))
   fs.rmSync(root, { recursive: true, force: true })
 })
+
+test('packer retains independent capture axes across several OS versions and platforms', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const fs = await import('node:fs'), os = await import('node:os'), path = await import('node:path')
+  const { loadBundle } = await import('./loadBundle.js')
+  const { captureProfiles, selectionOf, resolveProfile, captureForProfile } = await import('./captureSelection.js')
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'scrmap-capture-axes-'))
+  try {
+    const descriptors = [
+      { id: 'ios18-en-light', platform: 'ios', osVersion: '18', language: 'en', appearance: 'light', device: 'iPhone test' },
+      { id: 'ios27-ar-dark', platform: 'ios', osVersion: '27', language: 'ar', appearance: 'dark', device: 'iPhone test' },
+      { id: 'android16-en-light', platform: 'android', osVersion: '16', language: 'en', appearance: 'light', device: 'Pixel test' },
+    ]
+    const out = path.join(root, '.screenmap', 'out')
+    for (const descriptor of descriptors) {
+      const dir = path.join(out, 'screens', descriptor.id)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'home.png'), descriptor.id)
+    }
+    fs.writeFileSync(path.join(root, '.screenmap', 'config.json'), JSON.stringify({ variants: descriptors }))
+    fs.writeFileSync(path.join(out, 'graph.json'), JSON.stringify({ routes: [{ id: 'home', slug: 'home', urlPath: '/' }], edges: [] }))
+    const packer = path.join(import.meta.dirname, '../../../../plugins/screenmap/skills/screenmap/scripts/pack-map.mjs')
+    const file = path.join(root, 'matrix.scrmap')
+    execFileSync('node', [packer, root, '--platforms', 'ios,android', '--variants', descriptors.map((item) => item.id).join(','), '--out', file])
+    const bundle = await loadBundle(fs.readFileSync(file))
+    const profiles = captureProfiles(bundle.manifest)
+    for (const descriptor of descriptors) {
+      const profile = resolveProfile(profiles, selectionOf(descriptor))
+      assert.equal(profile.osVersion, descriptor.osVersion)
+      assert.equal(profile.device, descriptor.device)
+      assert.equal(captureForProfile(bundle.map.nodes[0], profile).screenshot, `screens/${descriptor.id}/home.png`)
+    }
+    assert.equal(resolveProfile(profiles, { ...selectionOf(profiles[0]), osVersion: '26' }), null)
+  } finally { fs.rmSync(root, { recursive: true, force: true }) }
+})

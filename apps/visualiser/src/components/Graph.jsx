@@ -33,7 +33,7 @@ function statusBadge(node) {
 
 const HIDDEN_STEPS = ['wait', 'screenshot']
 
-export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, platforms, platform, setPlatform, variants, variant, setVariant, onOpenBuffer, onCloseChanges, screen, setScreen }) {
+export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, platforms, platform, setPlatform, variants, variant, setVariant, profiles, selection, setCaptureAxis, onOpenBuffer, onCloseChanges, screen, setScreen }) {
   const { manifest, map, images, diff } = bundle
   const diffMode = mode === 'changes' && !!diff
   const [positions, setPositions] = useState(null)
@@ -504,7 +504,7 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, pla
         />}
       </ReactFlow>
 
-      {!SHOT && <TopBar
+      {!SHOT && <TopBar profiles={profiles} selection={selection} setCaptureAxis={setCaptureAxis}
         manifest={manifest}
         mode={mode}
         setMode={setMode}

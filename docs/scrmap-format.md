@@ -72,10 +72,11 @@ crashes on Android is one node with two verdicts, not two maps to compare by eye
 
 ## Variants
 
-A bundle can hold the same screens captured under several app settings (language,
-theme, feature flags), for one platform. Each variant is a full sweep. It is
-`formatVersion: 3`, like the platform axis, and the two do not combine: a bundle
-has platforms or variants, not both.
+A bundle can hold capture combinations with independent platform, OS version,
+language and appearance fields. Variant ids identify the files and interaction
+inventories; they do not combine the viewer controls. It remains
+`formatVersion: 3`. Older id/label-only variants and platform-only bundles remain
+readable. Never infer an OS version from a device name or the viewing computer.
 
 ```
 ├── manifest.json              # `variants` lists them, in capture order
@@ -103,6 +104,47 @@ has platforms or variants, not both.
 the first one. `capture-status.json` is keyed by variant id first
 (`{"ar-dark": {"<routeId>": {…}}}`). Pack with
 `pack-map.mjs <project> --variants en-light,ar-dark`.
+
+## Capture combinations and synchronized comparison
+
+Declare observed metadata in `.screenmap/config.json` before packing:
+
+```json
+{"variants":[
+  {"id":"ios18-en-light","platform":"ios","osVersion":"18","language":"en","appearance":"light","device":"iPhone"},
+  {"id":"ios26-ar-dark","platform":"ios","osVersion":"26","language":"ar","appearance":"dark","device":"iPhone"},
+  {"id":"ios27-en-light","platform":"ios","osVersion":"27","language":"en","appearance":"light","device":"iPhone"},
+  {"id":"android16-en-light","platform":"android","osVersion":"16","language":"en","appearance":"light","device":"Pixel"}
+]}
+```
+
+Put finalized images in `screens/<id>/`, with status and interaction entries keyed
+by the same id. Run `pack-map.mjs <project> --platforms ios,android --variants
+<comma-separated ids>`. Multiple platforms with variants require all four axis
+fields for every id. OS versions are strings, so new releases need no viewer
+code change. Metadata is retained in `manifest.variants`.
+
+The viewer resolves an exact axis combination. A missing combination, route image
+or named Capture State displays **Not captured**; another image is never substituted.
+Only the legacy ids `en-light`, `en-dark`, `ar-light` and `ar-dark` supply implicit
+language and appearance. Missing metadata displays **Unspecified**. Opaque ids
+and duplicate axis combinations remain selectable through **Capture**.
+
+Prototype **Compare** displays two to four independently selected capture panels.
+Every panel uses its own saved image, hotspots and normalized coordinates. One
+shared Visit drives screen and Capture State. Tapping a verified hotspot in any
+panel moves all panels to that logical destination; Back, Close and recorded
+scroll positions use the same shared navigation. Panels without that destination
+or state show the missing-capture message. State names must identify the same
+logical state across captures. No coordinates or translated button labels are
+broadcast between panels. Disabled/destructive controls remain inactive.
+
+The URL stores independent `platform`, `osVersion`, `language`, `appearance`,
+legacy `variant`, `compare=1` and JSON `panes` options, preserving other parameters.
+`$unspecified` represents a selected unknown axis. Reload and browser Back/Forward
+restore these options. In-page Back/Close retains current panel selections while
+returning to the previous shared Visit. Comparison replays captured navigation;
+it does not provision runtimes or create missing screenshots.
 
 ## Prototype links
 

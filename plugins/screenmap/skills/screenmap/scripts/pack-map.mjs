@@ -6,16 +6,17 @@
 // Screens come from .screenmap/out/screens/. With several platforms they come
 // from .screenmap/out/screens/<platform>/ instead, each node gains a `captures`
 // map, and the bundle is formatVersion 3.
-// With --variants (one platform only) screens come from
+// With --variants screens come from
 // .screenmap/out/screens/<variant>/ and each node's `captures` is keyed by
-// variant id instead; the manifest gains `variants`. Combining --variants with
-// several platforms is rejected.
+// variant id instead; the manifest gains `variants`. Combining platforms and
+// variants requires explicit axis metadata in .screenmap/config.json.
 // See docs/scrmap-format.md for the format contract.
 
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { attachPrototype } from './prototype-producer.mjs'
+import { variantDescriptor } from './capture-axes.mjs'
 
 const args = process.argv.slice(2)
 let projectRoot = '.'
@@ -28,9 +29,13 @@ for (let i = 0; i < args.length; i++) {
   else if (args[i] === '--variants') variants = args[++i].split(',').map((s) => s.trim()).filter(Boolean)
   else projectRoot = args[i]
 }
+projectRoot = path.resolve(projectRoot)
 const multi = platforms.length > 1
-if (variants.length && multi) {
-  console.error('error: --variants works with a single platform only; drop the extra --platforms or pack each platform separately')
+if (variants.length && multi && !variants.every((id) => {
+  const item = readVariantConfig().find((v) => v?.id === id)
+  return item && ['platform', 'osVersion', 'language', 'appearance'].every((key) => typeof item[key] === 'string' && item[key].trim()) && platforms.includes(item.platform)
+})) {
+  console.error('error: multiple platforms with --variants require platform, osVersion, language and appearance in .screenmap/config.json for every variant; each platform must be listed in --platforms')
   process.exit(1)
 }
 // Variants are a second axis laid out exactly like platforms (screens/<id>/,
@@ -143,9 +148,14 @@ fs.writeFileSync(path.join(base, 'interaction-coverage.json'), JSON.stringify(in
 // A flow sidecar records the device it was recorded on; with several platforms
 // prefer the one whose sidecar names that platform, else fall back to any.
 const deviceFor = (pf) => flows.find((f) => f.platform === pf && f.device)?.device ?? (multi ? null : flows.find((f) => f.device)?.device ?? null)
-const variantLabels = Object.fromEntries(
-  (hasVariants ? readVariantConfig() : []).filter((v) => v?.id).map((v) => [v.id, v.label])
-)
+const variantConfig = readVariantConfig()
+for (const item of variantConfig.filter((value) => variants.includes(value?.id))) {
+  for (const key of ['platform', 'osVersion', 'language', 'appearance', 'device', 'label']) {
+    if (item[key] != null && (typeof item[key] !== 'string' || !item[key].trim())) throw new Error(`variant ${item.id}: ${key} must be a nonempty string`)
+  }
+}
+const descriptors = variants.map((id) => variantDescriptor(variantConfig.find((v) => v?.id === id) ?? { id }, platforms[0]))
+const capturePlatforms = hasVariants ? [...new Set(descriptors.map((item) => item.platform))] : platforms
 const manifest = {
   formatVersion: nested ? 3 : 2,
   flowFormat: 'argent', // flows/*.yaml runnable via `argent flow run`
@@ -153,12 +163,12 @@ const manifest = {
   app: {
     name: appName,
     scheme: graph.scheme ?? null,
-    platform: PLATFORM_LABELS[platforms[0]] ?? platforms[0],
-    device: deviceFor(platforms[0]) ?? (multi ? null : flows.find((f) => f.device)?.device ?? null),
+    platform: PLATFORM_LABELS[capturePlatforms[0]] ?? capturePlatforms[0],
+    device: descriptors[0]?.device ?? deviceFor(capturePlatforms[0]) ?? (multi ? null : flows.find((f) => f.device)?.device ?? null),
     mode: graph.mode ?? null,
-    ...(multi ? { platforms: platforms.map((pf) => ({ platform: pf, label: PLATFORM_LABELS[pf] ?? pf, device: deviceFor(pf) })) } : {}),
+    ...(capturePlatforms.length > 1 ? { platforms: capturePlatforms.map((pf) => ({ platform: pf, label: PLATFORM_LABELS[pf] ?? pf, device: deviceFor(pf) })) } : {}),
   },
-  ...(hasVariants ? { variants: variants.map((id) => ({ id, label: variantLabels[id] ?? id })) } : {}),
+  ...(hasVariants ? { variants: descriptors } : {}),
   generatedAt: new Date().toISOString(),
 }
 

@@ -1,4 +1,4 @@
-const keys = ['mode', 'screen', 'state', 'variant', 'platform', 'highlights']
+const keys = ['mode', 'screen', 'state', 'variant', 'platform', 'highlights', 'language', 'appearance', 'osVersion', 'compare', 'panes']
 
 export function createNavigation(window) {
   const listeners = new Set()
@@ -24,7 +24,14 @@ export function createNavigation(window) {
     window.history[replace ? 'replaceState' : 'pushState']({ ...window.history.state, screenmap: { token, backSteps: nextSteps, closeSteps: nextCloseSteps } }, '', url)
     notify()
   }
-  const onPop = () => notify()
+  let pendingOptions = null
+  const onPop = () => {
+    if (pendingOptions) {
+      const values = pendingOptions
+      pendingOptions = null
+      change(values, { replace: true })
+    } else notify()
+  }
   return {
     read,
     subscribe(listener) { if (!listeners.size) window.addEventListener('popstate', onPop); listeners.add(listener); return () => { listeners.delete(listener); if (!listeners.size) window.removeEventListener('popstate', onPop) } },
@@ -33,7 +40,11 @@ export function createNavigation(window) {
     back(fallbackTo, scope = 'visit') {
       const info = window.history.state?.screenmap
       const steps = scope === 'screen' ? info?.closeSteps : info?.backSteps
-      if (info?.token === token && steps > 0) window.history.go(-steps)
+      if (info?.token === token && steps > 0) {
+        const current = read()
+        pendingOptions = Object.fromEntries(['variant', 'platform', 'language', 'appearance', 'osVersion', 'compare', 'panes', 'highlights'].map((key) => [key, current[key]]))
+        window.history.go(-steps)
+      }
       else if (typeof fallbackTo === 'string' && fallbackTo) change({ screen: fallbackTo, state: null }, { replace: true })
     },
     reset() { token = `${Date.now()}-${Math.random()}`; change({ screen: null, state: null }, { replace: true }) },
