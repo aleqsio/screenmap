@@ -70,6 +70,78 @@ crashes on Android is one node with two verdicts, not two maps to compare by eye
 `capture-status.json` is keyed by platform first in a v3 bundle
 (`{"android": {"<routeId>": {…}}}`) and by route id in a v2 one.
 
+## Variants
+
+A bundle can hold the same screens captured under several app settings (language,
+theme, feature flags), for one platform. Each variant is a full sweep. It is
+`formatVersion: 3`, like the platform axis, and the two do not combine: a bundle
+has platforms or variants, not both.
+
+```
+├── manifest.json              # `variants` lists them, in capture order
+├── map.json                   # each node gains `captures`, keyed by variant id
+└── screens/
+    ├── en-light/*.png
+    └── ar-dark/*.png
+```
+
+```jsonc
+"variants": [
+  { "id": "en-light", "label": "en-light" },
+  { "id": "ar-dark",  "label": "Arabic · dark" }
+]
+```
+
+```jsonc
+"captures": {                        // same shape as `capture`, one per variant
+  "en-light": { "status": "ok", "screenshot": "screens/en-light/Profile.png", "states": [...] },
+  "ar-dark":  { "status": "ok", "screenshot": "screens/ar-dark/Profile.png", "states": [] }
+}
+```
+
+`capture` mirrors the first variant, so a reader that does not know variants shows
+the first one. `capture-status.json` is keyed by variant id first
+(`{"ar-dark": {"<routeId>": {…}}}`). Pack with
+`pack-map.mjs <project> --variants en-light,ar-dark`.
+
+## Prototype links
+
+Optional `.screenmap/out/hotspots.json` binds clickable areas to exact captures:
+
+```json
+{
+  "version": 1,
+  "captures": [{
+    "node": "Home",
+    "variant": "en-light",
+    "sourceSha256": "<SHA-256 of the screenshot file>",
+    "links": [{ "label": "Profile", "to": "Profile", "targetState": "menu", "rect": [0.7, 0.1, 0.2, 0.1] }],
+    "scroll": { "next": "scrolled" },
+    "viewport": { "width": 390, "height": 844 }
+  }]
+}
+```
+
+`rect` is `[x, y, width, height]`, normalized to the screenshot. Set `state`
+on a capture entry to bind it to `slug--state.png`; omit it for the base.
+An optional `targetState` opens a named state on the destination. Use
+`{"label":"Back","action":"back","rect":[...]}` for a Back hotspot.
+Add `"fallbackTo":"Home"` to use that captured node when the prototype has no
+previous visit, such as a directly opened modal. The fallback replaces the
+current visit; it does not add another history entry. Without a fallback, a
+Back hotspot is disabled when there is no previous visit. `fallbackTo` is
+valid only for Back hotspots and must name a node with a base screenshot
+in the same variant or platform.
+`scroll.next` and `scroll.previous` name other captured positions on the same
+screen; `$base` names the base capture. For a tall screenshot, `viewport`
+sets the phone frame's positive width and height in the same units, so the
+image can scroll inside it. For a
+single-platform bundle, use the platform id as `variant`. The packer adds
+`capture.prototype` only when the image hash matches. It excludes links with
+unknown destinations or rectangles outside the image. Recheck coordinates and
+update the hash after changing a screenshot. The viewer checks the hash again
+when it opens a bundle. Older bundles need no hotspots.
+
 ## manifest.json
 
 ```jsonc
@@ -192,3 +264,16 @@ The **`.meta.json` sidecar** maps YAML step indexes (0-based, sparse) to cartogr
 - **needsNavigation** nodes cannot be reached by bare deep link; their flow or note
   explains the in-app path.
 - Viewers must ignore unknown fields and reject `formatVersion` they don't support.
+
+
+## First-map interaction inventory
+
+The skill and CI capture agent inventory visible controls during the first capture pass, including navigation headers, overflow menus and dismissal states in every language. `scripts/record-interactions.mjs` binds these observations to the final screenshot bytes. See [the capture workflow](../plugins/screenmap/skills/screenmap/references/interactions.md) for recording steps and the controls schema.
+
+An optional root `interactions.json` stores `{ "version": 1, "captures": [...] }`. Both map producers retain this file for incremental reuse and compile valid observations into `capture.prototype.links`; a project does not need an authored `hotspots.json`. Existing curated hotspots take precedence; conflicting destinations are unresolved. A control's normalized frame comes from that variant's observed layout. The compiler never mirrors coordinates or guesses menu destinations.
+
+Each capture gains `interactions: { status, sourceSha256, controls, reason? }`. Each control has an `id`, `label`, `kind`, `rect`, `status` (`linked` or `unresolved`) and an optional unresolved `reason`. Capture status is `complete`, `partial`, or `missing`. A complete inventory with zero navigation controls is valid for a screen with none. Missing screenshots or inventories, stale hashes and invalid destination captures cannot establish complete navigation.
+
+`map.interactionCoverage` summarizes captures and controls across all axes. `interaction-coverage.json` stores the same report in the bundle and working output. The viewer checks screenshot hashes again and downgrades stale reports. Prototype displays the selected capture's report with unresolved reasons. Completion describes captured navigation; it does not mean backend operations or destructive controls are simulated.
+
+A Back link may set `scope: "screen"` to close its screen across intermediate saved states. The inventory compiler assigns this scope to Close controls. Without the scope, Back returns to the previous Visit. Both use `fallbackTo` when no matching history exists.

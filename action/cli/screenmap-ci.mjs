@@ -63,7 +63,7 @@ const copyShots = (fromDir, toDir, slug) => {
 
 // Capture a list of routes on the live session: committed flow replay first,
 // deep link otherwise, agent for what's left (budgeted). Shared by both jobs.
-async function captureRoutes({ project, config, scheme, session, routes, flows, outDir, work, agentMode, prContext, agentEnabled }) {
+async function captureRoutes({ project, config, scheme, session, routes, flows, outDir, work, agentMode, prContext, agentEnabled, firstMap = false }) {
   const result = { replay: [], deeplink: [], launch: [], agent: [], failed: [], unflowed: [], drifted: [], unverified: [], navigationOnly: [] }
   const canReplay = flows.size > 0 && argentAvailable()
   if (flows.size > 0 && !canReplay) log('argent not available — committed flows will not be replayed this run')
@@ -172,12 +172,12 @@ async function captureRoutes({ project, config, scheme, session, routes, flows, 
   const scan = config.agent.scan
   const unflowedIds = new Set(result.unflowed.map((r) => r.id))
   const extra =
-    scan === 'all' ? routes.filter((r) => !unflowedIds.has(r.id))
+    firstMap || scan === 'all' ? routes.filter((r) => !unflowedIds.has(r.id))
     : scan === 'params' ? routes.filter((r) => !unflowedIds.has(r.id) && r.params?.length)
     : []
   const candidates = [
     ...result.unflowed,
-    ...extra.map((r) => ({ ...r, reason: scan === 'all' ? `re-checked (effort=${config.effort})` : "deep link guesses this route's param" })),
+    ...extra.map((r) => ({ ...r, reason: firstMap ? 'first map navigation inventory missing' : scan === 'all' ? `re-checked (effort=${config.effort})` : "deep link guesses this route's param" })),
   ]
   if (agentEnabled && candidates.length) {
     const agentDir = ensureDir(path.join(work, 'agent'))
@@ -202,6 +202,8 @@ async function captureRoutes({ project, config, scheme, session, routes, flows, 
         if (r && copyShots(path.join(agentDir, 'screens'), outDir, r.slug) > 0) result.agent.push(id)
       }
       result.recordedFlowsDir = exists(path.join(agentDir, 'flows')) && fs.readdirSync(path.join(agentDir, 'flows')).length ? path.join(agentDir, 'flows') : null
+      const recorded = readJson(path.join(agentDir, 'interactions.json'), {})
+      result.recordedInteractions = recorded.version === 1 && Array.isArray(recorded.captures) ? recorded.captures.filter((record) => record?.variant === session.platform) : []
       result.notes = readJson(path.join(agentDir, 'notes.json'), null)
     }
   } else {
@@ -279,7 +281,7 @@ async function baseline() {
       const session = await openSession({ projectDir: project, config: pc, scheme, platform, runtime })
       deviceName = session.deviceName
       try {
-        cap = await captureRoutes({ project, config: pc, scheme, session, routes, flows, outDir: screensDir, work: path.join(work, platform), agentMode: 'baseline', agentEnabled: !opts['no-agent'] })
+        cap = await captureRoutes({ project, config: pc, scheme, session, routes, flows, outDir: screensDir, work: path.join(work, platform), agentMode: 'baseline', agentEnabled: !opts['no-agent'], firstMap: !prev })
       } finally { session.close() }
     }
     for (const id of cap.failed) captureStatus[id] = { status: 'missing', note: `deep link failed in CI (${platform})` }
@@ -288,8 +290,28 @@ async function baseline() {
   }
 
   const out = path.resolve(opts.out ?? path.join(work, `${fileSafe(appName)}-${(commit ?? 'local').slice(0, 7)}.scrmap`))
+  const configuredInteractions = readJson(path.join(project, '.screenmap', 'out', 'interactions.json'), {})
+  let savedInteractions = configuredInteractions.version === 1 && Array.isArray(configuredInteractions.captures) ? [...configuredInteractions.captures] : []
+  const interactionKey = (record) => JSON.stringify([record?.node, record?.variant, record?.state ?? null])
+  const refreshedInteractions = sides.flatMap((side) => side.cap.recordedInteractions ?? [])
+  const refreshedKeys = new Set(refreshedInteractions.map(interactionKey))
+  savedInteractions = [...savedInteractions.filter((record) => !refreshedKeys.has(interactionKey(record))), ...refreshedInteractions]
+  const currentInteractionKeys = new Set(savedInteractions.map(interactionKey))
+  if (prev) savedInteractions.push(...prev.interactions.filter((record) => platforms.includes(record?.variant) && !currentInteractionKeys.has(interactionKey(record))))
+  const configuredHotspots = readJson(path.join(project, '.screenmap', 'out', 'hotspots.json'), {})
+  const savedHotspots = configuredHotspots.version === 1 && Array.isArray(configuredHotspots.captures) ? [...configuredHotspots.captures] : []
+  if (prev) for (const platform of platforms) {
+    const side = baselineSide(prev, platform)
+    for (const node of prev.map.nodes) {
+      const capture = side.capture(node)
+      for (const state of [capture, ...(capture?.states ?? [])]) {
+        if (state?.prototype) savedHotspots.push({ node: node.id, variant: platform, ...(state.name ? { state: state.name } : {}), ...state.prototype })
+      }
+    }
+  }
   packBaseline({
     graph, flowsDir: flowsDirForPack, appName, commit, ref, out,
+    hotspots: savedHotspots, interactions: savedInteractions,
     platforms: sides.map((s) => ({ platform: s.platform, device: s.device, screensDir: s.screensDir })),
     captureStatus: multi ? Object.fromEntries(sides.map((s) => [s.platform, s.captureStatus])) : sides[0].captureStatus,
   })
@@ -347,17 +369,26 @@ async function pr() {
 
   const sides = []
   const baseStatusByPlatform = {}, headStatusByPlatform = {}
+  const baseInteractions = [], headInteractions = [], baseHotspots = []
   for (const platform of platforms) {
     const pc = platformConfig(config, platform)
     const sub = multi ? [platform] : []
     // base side comes from the baseline — nothing is captured twice
     const prevSide = baselineSide(base, platform)
     const baseSubset = {}
+    const baseCaptured = new Set()
     for (const c of suspects.capture.filter((c) => c.side !== 'head')) {
-      copyShots(prevSide.dir, path.join(diffDir, 'base', 'screens', ...sub), c.slug)
+      if (copyShots(prevSide.dir, path.join(diffDir, 'base', 'screens', ...sub), c.slug)) baseCaptured.add(c.id)
       if (prevSide.status[c.id]) baseSubset[c.id] = prevSide.status[c.id]
     }
     baseStatusByPlatform[platform] = baseSubset
+    baseInteractions.push(...base.interactions.filter((record) => record?.variant === platform && baseCaptured.has(record?.node)))
+    for (const node of base.map.nodes.filter((node) => baseCaptured.has(node.id))) {
+      const capture = prevSide.capture(node)
+      for (const state of [capture, ...(capture?.states ?? [])]) {
+        if (state?.prototype) baseHotspots.push({ node: node.id, variant: platform, ...(state.name ? { state: state.name } : {}), ...state.prototype })
+      }
+    }
 
     // head side: capture suspects on the PR head
     let cap = { replay: [], deeplink: [], launch: [], agent: [], failed: [], unflowed: [] }
@@ -380,10 +411,14 @@ async function pr() {
     for (const id of cap.failed) headStatus[id] = { status: 'missing', note: `deep link failed in CI (${platform})` }
     headStatusByPlatform[platform] = headStatus
     downscaleAll(headScreens)
+    headInteractions.push(...(cap.recordedInteractions ?? []))
     sides.push({ platform, device: deviceName, cap })
   }
   writeJson(path.join(diffDir, 'base', 'capture-status.json'), multi ? baseStatusByPlatform : baseStatusByPlatform[platforms[0]])
   writeJson(path.join(diffDir, 'head', 'capture-status.json'), multi ? headStatusByPlatform : headStatusByPlatform[platforms[0]])
+  writeJson(path.join(diffDir, 'base', 'interactions.json'), { version: 1, captures: baseInteractions })
+  writeJson(path.join(diffDir, 'head', 'interactions.json'), { version: 1, captures: headInteractions })
+  writeJson(path.join(diffDir, 'base', 'hotspots.json'), { version: 1, captures: baseHotspots })
 
   const out = path.resolve(opts.out ?? path.join(work, `${fileSafe(appName)}-${opts.pr ? `pr${opts.pr}` : (headSha ?? 'head').slice(0, 7)}.diff.scrmap`))
   packDiff({ diffDir, platforms: sides.map((s) => ({ platform: s.platform, device: s.device })), out })
@@ -778,11 +813,20 @@ async function merge() {
   const sides = []
   let first = null
   const captureStatus = {}
+  const hotspots = []
+  const interactions = []
   for (const { platform, file } of parsed) {
     if (!exists(file)) { log(`merge: skipping ${platform} — ${file} not found`); continue }
     const b = readBaseline(file, path.join(work, platform))
+    interactions.push(...b.interactions.filter((record) => record?.variant === platform))
     first ??= b
     const side = baselineSide(b, platform)
+    for (const node of b.map.nodes) {
+      const capture = side.capture(node)
+      for (const state of [capture, ...(capture?.states ?? [])]) {
+        if (state?.prototype) hotspots.push({ node: node.id, variant: platform, ...(state.name ? { state: state.name } : {}), ...state.prototype })
+      }
+    }
     // Refuse a bundle that does not carry the platform it is being merged as.
     // Two artifact paths swapped in a workflow is an easy mistake to make and an
     // impossible one to spot afterwards: the map would show iOS screenshots
@@ -799,7 +843,7 @@ async function merge() {
   if (sides.length === 1) log(`merge: only ${sides[0].platform} was available — writing a single-platform map`)
   const out = path.resolve(opts.out ?? path.join(work, 'merged.scrmap'))
   packBaseline({
-    graph: first.graph, platforms: sides, flowsDir: first.flowsDir,
+    graph: first.graph, platforms: sides, flowsDir: first.flowsDir, hotspots, interactions,
     captureStatus: sides.length > 1 ? captureStatus : captureStatus[sides[0].platform],
     appName: opts.app ?? first.manifest.app?.name ?? 'app',
     commit: opts.commit ?? first.manifest.source?.commit ?? null,
