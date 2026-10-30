@@ -69,7 +69,7 @@ export default function Prototype({ sourceBundle, profiles, selection, setCaptur
               </div>}
               {item.capture && ((item.capture.status ?? 'ok') !== 'ok' || item.capture.needsNavigation || item.capture.note) && <p className="max-w-sm rounded border bg-muted p-2 text-xs" role="status">{item.capture.status === 'auth-wall' ? 'Authentication state differs' : (item.capture.status ?? 'ok') !== 'ok' ? item.capture.status : 'Capture note'}{item.capture.note ? `: ${item.capture.note}` : item.capture.needsNavigation ? ': requires navigation' : ''}</p>}
               {comparing && <p className="text-xs text-muted-foreground">Navigation coverage · {item.displayed?.interactions?.status === 'complete' ? 'Complete' : item.displayed?.interactions?.status === 'partial' ? 'Partial' : 'Not inventoried'}</p>}
-              <PrototypeCapture node={current} capture={item.capture} displayed={item.displayed} images={images} state={state} setState={setState} highlights={highlights} canBack={canBack} canClose={canClose} back={back} navigate={navigate} />
+              <PrototypeCapture node={current} capture={item.capture} displayed={item.displayed} images={images} state={state} setState={setState} comparing={comparing} highlights={highlights} canBack={canBack} canClose={canClose} back={back} navigate={navigate} />
             </section>)}
           </div>
           {comparing && panes.length < 4 && <Button variant="outline" size="sm" onClick={() => setPanes([...panes, { ...selection }])}><Plus /> Add panel</Button>}

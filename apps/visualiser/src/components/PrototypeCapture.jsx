@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { nodeLabel } from '../lib/label'
 
-export default function PrototypeCapture({ node, capture, displayed, images, state, setState, highlights, canBack, canClose, back, navigate }) {
+export default function PrototypeCapture({ node, capture, displayed, images, state, setState, comparing, highlights, canBack, canClose, back, navigate }) {
   const phone = useRef(null)
   const touchStart = useRef(null)
   const scrollTime = useRef(0)
@@ -9,6 +9,7 @@ export default function PrototypeCapture({ node, capture, displayed, images, sta
   const img = displayed?.screenshot ? images.get(displayed.screenshot) : null
   const viewport = displayed?.prototype?.viewport ?? capture?.prototype?.viewport
   const frameAspect = viewport ? viewport.width / viewport.height : aspect
+  const reservedHeight = comparing ? 400 : 280
   const scroll = displayed?.prototype?.scroll
   const hoverOnly = highlights === 'hover'
   useEffect(() => {
@@ -40,7 +41,7 @@ export default function PrototypeCapture({ node, capture, displayed, images, sta
   }
   if (!img) return <div role="status" className="flex min-h-64 w-full max-w-sm items-center justify-center rounded-xl border border-dashed bg-muted/30 p-6 text-center text-sm text-muted-foreground">Not captured{state ? `: ${state}` : ''} for this selection.</div>
   return <>
-    <div ref={phone} className="max-w-full overflow-y-auto overscroll-contain rounded-xl border bg-card" style={{ width: `min(100%, calc(${frameAspect * 100}vh - ${frameAspect * 280}px))`, maxHeight: 'calc(100vh - 280px)' }} onTouchStart={(event) => { touchStart.current = event.touches[0]?.clientY }} onTouchEnd={(event) => { const delta = touchStart.current - event.changedTouches[0]?.clientY; if (Math.abs(delta) > 30) moveScroll(delta > 0 ? 'next' : 'previous') }}>
+    <div ref={phone} className="max-w-full overflow-y-auto overscroll-contain rounded-xl border bg-card" style={{ width: `min(100%, max(${frameAspect * 160}px, calc(${frameAspect * 100}vh - ${frameAspect * reservedHeight}px)))`, maxHeight: `max(160px, calc(100vh - ${reservedHeight}px))` }} onTouchStart={(event) => { touchStart.current = event.touches[0]?.clientY }} onTouchEnd={(event) => { const delta = touchStart.current - event.changedTouches[0]?.clientY; if (Math.abs(delta) > 30) moveScroll(delta > 0 ? 'next' : 'previous') }}>
       <div className="relative leading-none">
         <img src={img} alt={`Capture: ${nodeLabel(node)}${state ? ` · ${state}` : ''}`} className="block h-auto w-full" />
         {(displayed.prototype?.links ?? []).map((link, i) => {
