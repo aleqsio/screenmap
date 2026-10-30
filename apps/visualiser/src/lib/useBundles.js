@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { captureProfiles, selectionOf, resolveProfile, readPanes } from './captureSelection'
 import { createNavigation } from './navigation'
 import { loadBundle, mergeBundles, sameApp, platformsOf, withPlatform, variantsOf, withVariant } from './loadBundle'
 
@@ -171,21 +172,31 @@ export function useBundles() {
   // since it is the fuller one. Selecting happens BEFORE the merge so the merge,
   // the diff annotations and every component below keep reading plain `capture`.
   const platforms = useMemo(() => platformsOf(plain ?? changes), [plain, changes])
-  const activePlatform = useMemo(
-    () => (platforms.some((p) => p.platform === platform) ? platform : platforms[0]?.platform ?? null),
-    [platforms, platform]
-  )
   const variants = useMemo(() => variantsOf(plain ?? changes), [plain, changes])
-  const activeVariant = useMemo(
-    () => (variants.some((v) => v.id === variant) ? variant : variants[0]?.id ?? null),
-    [variants, variant]
-  )
-  useEffect(() => {
-    if (platform && platforms.length && platform !== activePlatform) navigation.change({ platform: activePlatform }, { replace: true })
-    if (variant && variants.length && variant !== activeVariant) navigation.change({ variant: activeVariant }, { replace: true })
-  }, [platform, platforms, activePlatform, variant, variants, activeVariant, navigation])
-  const plainP = useMemo(() => withVariant(withPlatform(plain, activePlatform), activeVariant), [plain, activePlatform, activeVariant])
-  const changesP = useMemo(() => withVariant(withPlatform(changes, activePlatform), activeVariant), [changes, activePlatform, activeVariant])
+  const profiles = useMemo(() => captureProfiles((plain ?? changes)?.manifest), [plain, changes])
+  const legacyProfile = profiles.find((p) => p.id === variant || (!variants.length && p.platform === platform)) ?? profiles[0]
+  const explicitSelection = ['language', 'appearance', 'osVersion'].some((key) => location[key] !== null)
+  const selection = useMemo(() => explicitSelection
+    ? Object.fromEntries(['platform', 'osVersion', 'language', 'appearance', 'variant'].map((key) => [key, location[key] === '$unspecified' ? '' : location[key] ?? '']))
+    : selectionOf(legacyProfile), [explicitSelection, location, legacyProfile])
+  const selectedProfile = resolveProfile(profiles, selection)
+  const activePlatform = selection.platform || null
+  const activeVariant = selectedProfile?.id ?? null
+  const setCaptureAxis = useCallback((key, value) => {
+    navigation.change(Object.fromEntries(Object.entries({ ...selection, [key]: value }).map(([name, item]) => [name, item || '$unspecified'])))
+  }, [navigation, selection])
+  const comparing = location.compare === '1'
+  const savedPanes = useMemo(() => readPanes(location.panes), [location.panes])
+  const panes = useMemo(() => savedPanes.length >= 2 ? savedPanes : [selection, selectionOf(profiles.find((p) => p.id !== selectedProfile?.id) ?? profiles[0])], [savedPanes, selection, profiles, selectedProfile])
+  const setComparing = useCallback((value) => navigation.change({ compare: value ? '1' : null, ...(value ? { panes: JSON.stringify(panes) } : {}) }), [navigation, panes])
+  const setPanes = useCallback((value) => navigation.change({ panes: JSON.stringify(value.slice(0, 4)) }), [navigation])
+  const selectBundle = useCallback((source) => {
+    if (!source) return null
+    if (!selectedProfile) return { ...source, map: { ...source.map, nodes: source.map.nodes.map((node) => ({ ...node, capture: { status: 'missing', screenshot: null, states: [] } })) } }
+    return variants.length ? withVariant(source, selectedProfile.id) : withPlatform(source, selectedProfile.platform)
+  }, [selectedProfile, variants.length])
+  const plainP = useMemo(() => selectBundle(plain), [plain, selectBundle])
+  const changesP = useMemo(() => selectBundle(changes), [changes, selectBundle])
 
   // Is there a map to lay the overlay over? Only then does the Changes view get
   // the map's captures behind it; without one it still resolves what it can
@@ -209,6 +220,7 @@ export function useBundles() {
 
   return {
     plain, changes, bundle, mode, setMode,
+    sourceBundle: plain ?? bundle, profiles, selection, setCaptureAxis, comparing, setComparing, panes, setPanes,
     hasChanges: !!changes, overlaid,
     platforms, platform: activePlatform, setPlatform,
     variants, variant: activeVariant, setVariant, screen, setScreen, state, setState, highlights, setHighlights, canBack, canClose, visit, back,

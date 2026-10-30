@@ -1,6 +1,6 @@
 ---
 name: screenmap
-description: Generate a visual navigation map and captured interactive prototype of an Expo / React Native or NativeScript app. On the first map, inventory visible controls in every capture and language, verify Back/Close destinations, capture three-dot menus, sheets and their dismissal states, and record interactions.json so packing creates hotspots automatically. Mark destructive and disabled controls with explicit safety flags and unresolved reasons. Report missing inventories and unresolved controls; route screenshots alone are not complete navigation. Statically parses expo-router, react-navigation, NativeScript or custom routes, captures iOS/Android variants, and diffs revisions into PR previews. Use for navigation maps, interactive screen prototypes, visual sitemaps or on-screen PR review.
+description: Generate a visual navigation map and captured interactive prototype of an Expo / React Native or NativeScript app. On the first map, inventory visible controls in every capture and language, verify Back/Close destinations, capture three-dot menus, sheets and their dismissal states, and record interactions.json so packing creates hotspots automatically. Mark destructive and disabled controls with explicit safety flags and unresolved reasons. Report missing inventories and unresolved controls; route screenshots alone are not complete navigation. Statically parses expo-router, react-navigation, NativeScript or custom routes, captures independent language/appearance and multiple OS versions per iOS/Android platform, supports synchronized prototype comparison, and diffs revisions into PR previews. Use for navigation maps, interactive screen prototypes, visual sitemaps or on-screen PR review.
 ---
 
 # screenmap
@@ -14,6 +14,25 @@ Produce a visual map of an Expo / React Native or NativeScript app's navigation:
 **Working directory contract:** all outputs go to `<project>/.screenmap/out/` — `graph.json`, `screens/*.png`, `flows/*.yaml` + `flows/*.meta.json`, `map.html`. Suggest adding `.screenmap/out/` to the project's `.gitignore` at the end.
 
 **Platform contract:** with one platform, screenshots go to `screens/<slug>.png` as they always have. With `--platform both`, they go to `screens/ios/<slug>.png` and `screens/android/<slug>.png`, `capture-status.json` is keyed by platform first (`{"android": {"<routeId>": …}}`), and the bundle carries both so the viewer gets an iOS / Android switcher. Run the device phases once per platform, all the way through, before starting the next — never interleave them.
+
+### Independent capture combinations
+
+For a multi-version or language/appearance map, list the requested combinations in
+`.screenmap/config.json` `variants`: unique `id`, `platform`, observed `osVersion`,
+`language`, `appearance`, optional `device` and `label`. See
+[the format contract](../../../../docs/scrmap-format.md#capture-combinations-and-synchronized-comparison).
+Treat each id as one capture pass. Save images under `out/screens/<id>/`, key
+status and interaction inventories by that id, and pack with `--variants <ids>`
+and `--platforms ios,android` when needed. Use the same logical route/state names
+across combinations so Compare can synchronize navigation. Never mirror RTL frames.
+
+Observe the OS version on the capture device; do not infer it from a device name,
+host runtime or another capture. Preserve existing capture archives. Run each
+combination only with a suitable installed runtime and eligible app build. Follow
+project/user authorization before creating devices, downloading runtimes, or
+building/installing apps. Report unavailable combinations; do not relabel another
+screenshot. The packer and viewer support multiple OS versions; runtime provisioning
+is not automatic.
 
 ### Device command table
 

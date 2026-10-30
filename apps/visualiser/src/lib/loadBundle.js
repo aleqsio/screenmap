@@ -353,7 +353,7 @@ export function platformsOf(bundle) {
 // capture order. Empty for a bundle without a variants axis.
 export function variantsOf(bundle) {
   const v = bundle?.manifest?.variants
-  return Array.isArray(v) ? v.filter((x) => x?.id).map((x) => ({ id: x.id, label: x.label ?? x.id })) : []
+  return Array.isArray(v) ? v.filter((x) => x?.id).map((x) => ({ ...x, label: x.label ?? x.id })) : []
 }
 
 // Same swap as withPlatform, for the variants axis: a variants bundle keys
@@ -369,7 +369,7 @@ export function withVariant(bundle, variant) {
         const capBase = n.capturesBase?.[variant]
         return {
           ...n,
-          ...(cap ? { capture: cap } : {}),
+          capture: cap ?? { status: 'missing', screenshot: null, states: [] },
           ...(n.capturesBase ? { captureBase: capBase ?? null } : {}),
         }
       }),
@@ -389,14 +389,11 @@ export function withPlatform(bundle, platform) {
     map: {
       ...bundle.map,
       nodes: nodes.map((n) => {
-        // a node captured on only one platform keeps the capture it has rather
-        // than blanking out — a screen that exists on iOS and not Android is
-        // better shown than hidden
         const cap = n.captures?.[platform]
         const capBase = n.capturesBase?.[platform]
         return {
           ...n,
-          ...(cap ? { capture: cap } : {}),
+          capture: cap ?? { status: 'missing', screenshot: null, states: [] },
           ...(n.capturesBase ? { captureBase: capBase ?? null } : {}),
         }
       }),
