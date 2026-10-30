@@ -1,11 +1,13 @@
 ---
 name: screenmap
-description: Generate a visual navigation map of an Expo / React Native or NativeScript app. Statically parses routes and links (expo-router, react-navigation, NativeScript Angular Router or Core XML pages, or your own parser) for full coverage, then deep-links through every screen in the iOS simulator or Android emulator capturing screenshots — including runtime states like bottom sheet snap points and modals — and renders a self-contained HTML map. Both platforms can go into one map with a platform switcher. Also diffs two revisions into a PR preview (.diff.scrmap) showing which screens/edges were added, removed, or changed. Use when the user asks to map an Expo/React Native/NativeScript app's navigation, screens, or routes, wants a visual sitemap of their app, or wants to preview/review what a PR changes on-screen.
+description: Generate a visual navigation map and captured interactive prototype of an Expo / React Native or NativeScript app. On the first map, inventory visible controls in every capture and language, verify Back/Close destinations, capture three-dot menus, sheets and their dismissal states, and record interactions.json so packing creates hotspots automatically. Mark destructive and disabled controls with explicit safety flags and unresolved reasons. Report missing inventories and unresolved controls; route screenshots alone are not complete navigation. Statically parses expo-router, react-navigation, NativeScript or custom routes, captures iOS/Android variants, and diffs revisions into PR previews. Use for navigation maps, interactive screen prototypes, visual sitemaps or on-screen PR review.
 ---
 
 # screenmap
 
 Produce a visual map of an Expo / React Native or NativeScript app's navigation: every route as a card with a screenshot, runtime state variants (bottom sheets at each snap point, modals), and navigation edges between screens.
+
+**First-map interaction contract:** read [Capture interactions](references/interactions.md) before the route sweep. Inventory every captured base/state/variant, including Back, Close, tabs and three-dot menus on empty/error screens. Verify destinations and menu dismissal live; record them with `scripts/record-interactions.mjs`. Both packers compile `interactions.json` into Prototype hotspots and emit coverage. Complete means every safe navigation control resolves to a saved capture; list unresolved controls explicitly.
 
 **Arguments:** optional path to the app project (default: current working directory). `--static` = skip the device phases and render a screenshot-less map. `--platform ios|android|both` (default `ios`) = which device(s) to capture on. `pr <number>` or `diff <base>..<head>` = PR diff mode (see bottom).
 
@@ -178,8 +180,10 @@ These flows are what make edges *pinnable*: a nav flow tapping through a transit
 
 ## Phase 6 — pack, render, deliver
 
+Review `interaction-coverage.json`. Missing inventories, stale hashes and unresolved menus prevent a claim of full navigation. Check linked controls and unresolved reasons in each variant before delivery.
+
 ```bash
-# downscale (sips is macOS; on Linux use `mogrify -resize '800x800>' <files>`)
+# Finalize screenshot size before recording its interaction inventory.
 for f in <project>/.screenmap/out/screens/*.png; do sips -Z 800 "$f" >/dev/null; done
 node <this skill's dir>/scripts/pack-map.mjs <project>        # → .screenmap/out/<app>-<date>.scrmap bundle
 node <this skill's dir>/scripts/render-map.mjs <project>/.screenmap/out/graph.json   # static HTML fallback

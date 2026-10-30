@@ -2,8 +2,9 @@ import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { validatePrototype } from './prototype-capture.mjs'
+import { attachInteractions } from './prototype-interactions.mjs'
 
-export function attachPrototype(nodes, axes, records, screensByAxis) {
+export function attachPrototype(nodes, axes, records, screensByAxis, interactions = []) {
   for (const axis of axes) {
     const nested = axes.length > 1 || nodes.some((n) => n.captures)
     for (const node of nodes) {
@@ -21,4 +22,5 @@ export function attachPrototype(nodes, axes, records, screensByAxis) {
       if (nested && axis === axes[0]) node.capture = capture
     }
   }
+  return attachInteractions(nodes, axes, interactions, screensByAxis)
 }

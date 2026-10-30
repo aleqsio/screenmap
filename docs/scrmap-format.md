@@ -126,6 +126,12 @@ Optional `.screenmap/out/hotspots.json` binds clickable areas to exact captures:
 on a capture entry to bind it to `slug--state.png`; omit it for the base.
 An optional `targetState` opens a named state on the destination. Use
 `{"label":"Back","action":"back","rect":[...]}` for a Back hotspot.
+Add `"fallbackTo":"Home"` to use that captured node when the prototype has no
+previous visit, such as a directly opened modal. The fallback replaces the
+current visit; it does not add another history entry. Without a fallback, a
+Back hotspot is disabled when there is no previous visit. `fallbackTo` is
+valid only for Back hotspots and must name a node with a base screenshot
+in the same variant or platform.
 `scroll.next` and `scroll.previous` name other captured positions on the same
 screen; `$base` names the base capture. For a tall screenshot, `viewport`
 sets the phone frame's positive width and height in the same units, so the
@@ -258,3 +264,18 @@ The **`.meta.json` sidecar** maps YAML step indexes (0-based, sparse) to cartogr
 - **needsNavigation** nodes cannot be reached by bare deep link; their flow or note
   explains the in-app path.
 - Viewers must ignore unknown fields and reject `formatVersion` they don't support.
+
+
+## First-map interaction inventory
+
+The skill and CI capture agent inventory visible controls during the first capture pass, including navigation headers, overflow menus and dismissal states in every language. `scripts/record-interactions.mjs` binds these observations to the final screenshot bytes. See [the capture workflow](../plugins/screenmap/skills/screenmap/references/interactions.md) for recording steps and the controls schema.
+
+An optional root `interactions.json` stores `{ "version": 1, "captures": [...] }`. Both map producers retain this file for incremental reuse and compile valid observations into `capture.prototype.links`; a project does not need an authored `hotspots.json`. Existing curated hotspots take precedence; conflicting destinations are unresolved. A control's normalized frame comes from that variant's observed layout. The compiler never mirrors coordinates or guesses menu destinations.
+
+Each capture gains `interactions: { status, sourceSha256, controls, reason? }`. Each control has an `id`, `label`, `kind`, `rect`, `status` (`linked` or `unresolved`) and an optional unresolved `reason`. Capture status is `complete`, `partial`, or `missing`. A complete inventory with zero navigation controls is valid for a screen with none. Missing screenshots or inventories, stale hashes and invalid destination captures cannot establish complete navigation.
+
+Controls may include boolean `disabled` and `destructive` flags. Either flag set to `true` keeps the control unresolved and removes matching Prototype hotspots, including curated links. The recorder requires a reason-only outcome for flagged controls. Packers and the viewer enforce the flags independently; malformed flag values also block the control. Availability and action evidence supply the flags, without label-based classification. Existing inventories that omit both flags remain compatible.
+
+`map.interactionCoverage` summarizes captures and controls across all axes. `interaction-coverage.json` stores the same report in the bundle and working output. The viewer checks screenshot hashes again and downgrades stale reports. Prototype displays the selected capture's report with unresolved reasons. Completion describes captured navigation; it does not mean backend operations or destructive controls are simulated.
+
+A Back link may set `scope: "screen"` to close its screen across intermediate saved states. The inventory compiler assigns this scope to Close controls. Without the scope, Back returns to the previous Visit. Both use `fallbackTo` when no matching history exists.
