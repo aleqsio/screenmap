@@ -35,13 +35,16 @@ export default function Gallery(props) {
         move(event.key === 'ArrowRight' ? 1 : -1)
       }
     }
+    window.addEventListener('keydown', keydown)
+    return () => window.removeEventListener('keydown', keydown)
+  })
+  useEffect(() => {
     const pause = () => setPlaying(false)
     const visibility = () => { if (document.hidden) pause() }
-    window.addEventListener('keydown', keydown)
     window.addEventListener('popstate', pause)
     document.addEventListener('visibilitychange', visibility)
-    return () => { window.removeEventListener('keydown', keydown); window.removeEventListener('popstate', pause); document.removeEventListener('visibilitychange', visibility) }
-  })
+    return () => { window.removeEventListener('popstate', pause); document.removeEventListener('visibilitychange', visibility) }
+  }, [])
   useEffect(() => {
     if (!playing || frames.length < 2) return
     const timer = setTimeout(() => {
