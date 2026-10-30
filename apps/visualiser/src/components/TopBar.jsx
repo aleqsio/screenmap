@@ -1,4 +1,4 @@
-import { Moon, Sun, Monitor, Upload, X, Map as MapIcon, GitCompareArrows } from 'lucide-react'
+import { Moon, Sun, Monitor, Upload, X, Map as MapIcon, GitCompareArrows, MousePointer2 } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
 import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -45,7 +45,7 @@ function ThemeMenu() {
 
 const PLATFORM_LABEL = { ios: 'iOS', android: 'Android' }
 
-export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, stats, diffStats, platforms = [], platform, setPlatform, onOpenBuffer, onCloseChanges }) {
+export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, stats, diffStats, platforms = [], platform, setPlatform, variants = [], variant, setVariant, onOpenBuffer, onCloseChanges }) {
   const diffMode = mode === 'changes'
   // The switcher only earns its space when there is something to switch to; a
   // single-platform map keeps the bar it always had.
@@ -64,7 +64,7 @@ export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, 
   // to survive both, so nothing is ever taken from it.
   return (
     <header className="pointer-events-none absolute inset-x-4 top-4 z-10 flex flex-col items-end gap-2 min-[520px]:flex-row min-[520px]:items-start min-[520px]:justify-between min-[520px]:gap-3">
-      <div className="panel pointer-events-auto flex w-full min-w-0 items-center gap-3 px-3 py-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-400 min-[520px]:w-auto min-[520px]:max-w-[min(760px,calc(100vw-120px))] min-[520px]:gap-4 min-[520px]:px-4">
+      <div className="panel pointer-events-auto flex w-full min-w-0 flex-wrap items-center gap-3 px-3 py-2.5 animate-in fade-in-0 slide-in-from-top-2 duration-400 min-[520px]:w-auto min-[520px]:max-w-[calc(100vw-180px)] min-[520px]:gap-4 min-[520px]:px-4">
         <div className="flex min-w-0 flex-1 items-center gap-2 min-[520px]:flex-initial min-[520px]:gap-3">
           <Wordmark labelClassName="hidden min-[360px]:inline" />
           <Separator orientation="vertical" className="h-5" />
@@ -86,6 +86,9 @@ export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, 
         >
           <ToggleGroupItem value="map" aria-label="Map" className="data-[state=on]:bg-foreground data-[state=on]:text-background">
             <MapIcon data-icon="inline-start" aria-hidden="true" /> Map
+          </ToggleGroupItem>
+          <ToggleGroupItem value="prototype" aria-label="Prototype" className="data-[state=on]:bg-foreground data-[state=on]:text-background">
+            <MousePointer2 data-icon="inline-start" aria-hidden="true" /> Prototype
           </ToggleGroupItem>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -125,6 +128,32 @@ export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, 
                 </TooltipTrigger>
                 <TooltipContent>{p.device ?? p.label ?? p.platform}</TooltipContent>
               </Tooltip>
+            ))}
+          </ToggleGroup>
+        )}
+
+        {variants.length > 0 && (
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            spacing={0}
+            value={variant ?? ''}
+            onValueChange={(v) => v && setVariant?.(v)}
+            aria-label="Variant"
+            className="shrink-0"
+          >
+            {variants.map((v) => (
+              <ToggleGroupItem
+                key={v.id}
+                value={v.id}
+                aria-label={v.label}
+                className="data-[state=on]:bg-foreground data-[state=on]:text-background"
+              >
+                {/* the short id keeps the bar inside a phone-width screen */}
+                <span className="md:hidden">{v.id}</span>
+                <span className="hidden md:inline">{v.label}</span>
+              </ToggleGroupItem>
             ))}
           </ToggleGroup>
         )}
