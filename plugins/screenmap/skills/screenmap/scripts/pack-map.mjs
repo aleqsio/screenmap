@@ -1,31 +1,64 @@
 #!/usr/bin/env node
 // Packs an .screenmap/out/ working directory into a distributable .scrmap bundle (zip).
 // Usage: node pack-map.mjs [projectRoot] [--out <file.scrmap>] [--platforms ios,android]
+//                                    [--variants en-light,ar-dark]
 //
 // Screens come from .screenmap/out/screens/. With several platforms they come
 // from .screenmap/out/screens/<platform>/ instead, each node gains a `captures`
 // map, and the bundle is formatVersion 3.
+// With --variants screens come from
+// .screenmap/out/screens/<variant>/ and each node's `captures` is keyed by
+// variant id instead; the manifest gains `variants`. Combining platforms and
+// variants requires explicit axis metadata in .screenmap/config.json.
 // See docs/scrmap-format.md for the format contract.
 
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { attachPrototype } from './prototype-producer.mjs'
+import { variantDescriptor } from './capture-axes.mjs'
 
 const args = process.argv.slice(2)
 let projectRoot = '.'
 let outPath = null
 let platforms = ['ios']
+let variants = []
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--out') outPath = args[++i]
   else if (args[i] === '--platforms') platforms = args[++i].split(',').map((s) => s.trim()).filter(Boolean)
+  else if (args[i] === '--variants') variants = args[++i].split(',').map((s) => s.trim()).filter(Boolean)
   else projectRoot = args[i]
 }
+projectRoot = path.resolve(projectRoot)
 const multi = platforms.length > 1
+if (variants.length && multi && !variants.every((id) => {
+  const item = readVariantConfig().find((v) => v?.id === id)
+  return item && ['platform', 'osVersion', 'language', 'appearance'].every((key) => typeof item[key] === 'string' && item[key].trim()) && platforms.includes(item.platform)
+})) {
+  console.error('error: multiple platforms with --variants require platform, osVersion, language and appearance in .screenmap/config.json for every variant; each platform must be listed in --platforms')
+  process.exit(1)
+}
+// Variants are a second axis laid out exactly like platforms (screens/<id>/,
+// status keyed by id, a `captures` map per node). With variants the axis list
+// is the variants; otherwise it is the platforms, as before.
+const hasVariants = variants.length > 0
+const axis = hasVariants ? variants : platforms
+const nested = multi || hasVariants
 const PLATFORM_LABELS = { ios: 'ios-simulator', android: 'android-emulator' }
 projectRoot = path.resolve(projectRoot)
 const base = path.join(projectRoot, '.screenmap', 'out')
 
 const graph = JSON.parse(fs.readFileSync(path.join(base, 'graph.json'), 'utf8'))
+let hotspots = []
+try {
+  const data = JSON.parse(fs.readFileSync(path.join(base, 'hotspots.json'), 'utf8'))
+  if (data.version === 1 && Array.isArray(data.captures)) hotspots = data.captures
+} catch {}
+let interactions = []
+try {
+  const data = JSON.parse(fs.readFileSync(path.join(base, 'interactions.json'), 'utf8'))
+  if (data.version === 1 && Array.isArray(data.captures)) interactions = data.captures
+} catch {}
 let captureStatus = {}
 try {
   captureStatus = JSON.parse(fs.readFileSync(path.join(base, 'capture-status.json'), 'utf8'))
@@ -49,21 +82,30 @@ const flows = flowFiles
   })
   .filter(Boolean)
 
-const shotsDirFor = (pf) => path.join(base, 'screens', ...(multi ? [pf] : []))
-const shotsByPlatform = Object.fromEntries(platforms.map((pf) => {
+const shotsDirFor = (pf) => path.join(base, 'screens', ...(nested ? [pf] : []))
+const shotsByPlatform = Object.fromEntries(axis.map((pf) => {
   const d = shotsDirFor(pf)
   return [pf, fs.existsSync(d) ? fs.readdirSync(d).filter((f) => /\.(png|jpe?g|webp)$/i.test(f)) : []]
 }))
+
+// Optional human labels for variants come from .screenmap/config.json
+function readVariantConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(path.join(projectRoot, '.screenmap', 'config.json'), 'utf8')).variants ?? []
+  } catch {
+    return []
+  }
+}
 
 const appName = graph.appName ?? path.basename(graph.projectRoot ?? projectRoot)
 
 // capture-status.json is keyed by platform when several are packed, by route
 // id when one is — the same shape the CI packer writes
-const statusFor = (pf) => (multi ? captureStatus[pf] ?? {} : captureStatus)
+const statusFor = (pf) => (nested ? captureStatus[pf] ?? {} : captureStatus)
 const captureOf = (r, pf) => {
   const cs = statusFor(pf)[r.id] ?? {}
   const shotFiles = shotsByPlatform[pf]
-  const prefix = multi ? `screens/${pf}/` : 'screens/'
+  const prefix = nested ? `screens/${pf}/` : 'screens/'
   const baseShot = shotFiles.find((f) => f.replace(/\.\w+$/, '') === r.slug)
   const states = shotFiles
     .filter((f) => f.startsWith(r.slug + '--'))
@@ -80,7 +122,7 @@ const captureOf = (r, pf) => {
 }
 
 const nodes = graph.routes.map((r) => {
-  const per = Object.fromEntries(platforms.map((pf) => [pf, captureOf(r, pf)]))
+  const per = Object.fromEntries(axis.map((pf) => [pf, captureOf(r, pf)]))
   return {
     id: r.id,
     urlPath: r.urlPath ?? null,
@@ -95,27 +137,38 @@ const nodes = graph.routes.map((r) => {
     stateHints: r.stateHints ?? [],
     // `capture` mirrors the first platform so a pre-multi-platform viewer still
     // renders the map; `captures` is the full set
-    capture: per[platforms[0]],
-    ...(multi ? { captures: per } : {}),
+    capture: per[axis[0]],
+    ...(nested ? { captures: per } : {}),
   }
 })
 
-const map = { nodes, edges: graph.edges ?? [], flows: [] }
+const interactionCoverage = attachPrototype(nodes, axis, hotspots, Object.fromEntries(axis.map((pf) => [pf, shotsDirFor(pf)])), interactions)
+const map = { nodes, edges: graph.edges ?? [], flows: [], interactionCoverage }
+fs.writeFileSync(path.join(base, 'interaction-coverage.json'), JSON.stringify(interactionCoverage, null, 2) + '\n')
 // A flow sidecar records the device it was recorded on; with several platforms
 // prefer the one whose sidecar names that platform, else fall back to any.
 const deviceFor = (pf) => flows.find((f) => f.platform === pf && f.device)?.device ?? (multi ? null : flows.find((f) => f.device)?.device ?? null)
+const variantConfig = readVariantConfig()
+for (const item of variantConfig.filter((value) => variants.includes(value?.id))) {
+  for (const key of ['platform', 'osVersion', 'language', 'appearance', 'device', 'label']) {
+    if (item[key] != null && (typeof item[key] !== 'string' || !item[key].trim())) throw new Error(`variant ${item.id}: ${key} must be a nonempty string`)
+  }
+}
+const descriptors = variants.map((id) => variantDescriptor(variantConfig.find((v) => v?.id === id) ?? { id }, platforms[0]))
+const capturePlatforms = hasVariants ? [...new Set(descriptors.map((item) => item.platform))] : platforms
 const manifest = {
-  formatVersion: multi ? 3 : 2,
+  formatVersion: nested ? 3 : 2,
   flowFormat: 'argent', // flows/*.yaml runnable via `argent flow run`
   generator: 'screenmap/2.0',
   app: {
     name: appName,
     scheme: graph.scheme ?? null,
-    platform: PLATFORM_LABELS[platforms[0]] ?? platforms[0],
-    device: deviceFor(platforms[0]) ?? (multi ? null : flows.find((f) => f.device)?.device ?? null),
+    platform: PLATFORM_LABELS[capturePlatforms[0]] ?? capturePlatforms[0],
+    device: descriptors[0]?.device ?? deviceFor(capturePlatforms[0]) ?? (multi ? null : flows.find((f) => f.device)?.device ?? null),
     mode: graph.mode ?? null,
-    ...(multi ? { platforms: platforms.map((pf) => ({ platform: pf, label: PLATFORM_LABELS[pf] ?? pf, device: deviceFor(pf) })) } : {}),
+    ...(capturePlatforms.length > 1 ? { platforms: capturePlatforms.map((pf) => ({ platform: pf, label: PLATFORM_LABELS[pf] ?? pf, device: deviceFor(pf) })) } : {}),
   },
+  ...(hasVariants ? { variants: descriptors } : {}),
   generatedAt: new Date().toISOString(),
 }
 
@@ -123,9 +176,11 @@ const stage = fs.mkdtempSync(path.join(base, '.pack-'))
 try {
   fs.writeFileSync(path.join(stage, 'manifest.json'), JSON.stringify(manifest, null, 2))
   fs.writeFileSync(path.join(stage, 'map.json'), JSON.stringify(map, null, 2))
+  fs.writeFileSync(path.join(stage, 'interaction-coverage.json'), JSON.stringify(interactionCoverage, null, 2))
+  fs.writeFileSync(path.join(stage, 'interactions.json'), JSON.stringify({ version: 1, captures: interactions }, null, 2))
   fs.mkdirSync(path.join(stage, 'screens'))
-  for (const pf of platforms) {
-    const dest = path.join(stage, 'screens', ...(multi ? [pf] : []))
+  for (const pf of axis) {
+    const dest = path.join(stage, 'screens', ...(nested ? [pf] : []))
     fs.mkdirSync(dest, { recursive: true })
     for (const f of shotsByPlatform[pf]) fs.copyFileSync(path.join(shotsDirFor(pf), f), path.join(dest, f))
   }
@@ -135,10 +190,10 @@ try {
   const date = new Date().toISOString().slice(0, 10)
   outPath = path.resolve(outPath ?? path.join(base, `${String(appName).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '') || 'app'}-${date}.scrmap`))
   fs.rmSync(outPath, { force: true })
-  execFileSync('zip', ['-r', '-q', outPath, 'manifest.json', 'map.json', 'screens', 'flows'], { cwd: stage })
+  execFileSync('zip', ['-r', '-q', outPath, 'manifest.json', 'map.json', 'interactions.json', 'interaction-coverage.json', 'screens', 'flows'], { cwd: stage })
   const kb = Math.round(fs.statSync(outPath).size / 1024)
-  const shotCount = platforms.reduce((n, pf) => n + shotsByPlatform[pf].length, 0)
-  console.log(`wrote ${outPath} (${kb} KB, ${nodes.length} nodes, ${map.edges.length} edges, ${flows.length} flows, ${shotCount} screenshots across ${platforms.join('+')})`)
+  const shotCount = axis.reduce((n, pf) => n + shotsByPlatform[pf].length, 0)
+  console.log(`wrote ${outPath} (${kb} KB, ${nodes.length} nodes, ${map.edges.length} edges, ${flows.length} flows, ${shotCount} screenshots across ${axis.join('+')})`)
 } finally {
   fs.rmSync(stage, { recursive: true, force: true })
 }

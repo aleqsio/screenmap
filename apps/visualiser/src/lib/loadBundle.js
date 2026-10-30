@@ -1,5 +1,51 @@
 import { unzipSync } from 'fflate'
 import { parse as parseYaml } from 'yaml'
+import { validatePrototype, summarizeInteractions, sameInteractionControl, interactionBlockReason } from '../../../../plugins/screenmap/skills/screenmap/scripts/prototype-capture.mjs'
+
+async function validateCaptures(map, manifest, files, prefix = '') {
+  const hash = async (name) => {
+    if (!files[prefix + name] || !globalThis.crypto?.subtle) return null
+    const digest = await globalThis.crypto.subtle.digest('SHA-256', files[prefix + name])
+    return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('')
+  }
+  const tasks = []
+  for (const node of map.nodes) {
+    const axes = node.captures ? Object.keys(node.captures) : [null]
+    for (const axis of axes) {
+      const capture = axis == null ? node.capture : node.captures[axis]
+      for (const state of [capture, ...(capture?.states ?? [])]) {
+        if (!state?.prototype && !state?.interactions) continue
+        tasks.push(hash(state.screenshot).then((sha) => {
+          const valid = validatePrototype(state.prototype, sha, map.nodes, axis, node.id)
+          if (valid) state.prototype = valid
+          else delete state.prototype
+          if (state.interactions) {
+            const report = state.interactions
+            const reason = report.status === 'missing' ? (typeof report.reason === 'string' ? report.reason : 'missing-inventory') : !sha || report.sourceSha256 !== sha ? 'stale-inventory' : !['complete', 'partial'].includes(report.status) || !Array.isArray(report.controls) ? 'invalid-inventory' : null
+            const controls = (Array.isArray(report.controls) ? report.controls : []).map((control) => {
+              const item = { id: typeof control?.id === 'string' ? control.id : '', label: typeof control?.label === 'string' ? control.label : '', kind: typeof control?.kind === 'string' ? control.kind : 'other', rect: Array.isArray(control?.rect) && control.rect.length === 4 && control.rect.every(Number.isFinite) && control.rect[0] >= 0 && control.rect[1] >= 0 && control.rect[2] > 0 && control.rect[3] > 0 && control.rect[0] + control.rect[2] <= 1 && control.rect[1] + control.rect[3] <= 1 ? control.rect : null, status: 'unresolved' }
+              for (const key of ['disabled', 'destructive']) if (control?.[key] !== undefined) item[key] = control[key]
+              const blocked = interactionBlockReason(control)
+              const linked = !reason && !blocked && control?.status === 'linked' && item.rect && (valid?.links ?? []).some((link) => sameInteractionControl(link, item))
+              if (linked) item.status = 'linked'
+              else item.reason = reason ?? (typeof control?.reason === 'string' ? control.reason : blocked ?? 'missing-hotspot')
+              return item
+            })
+            if (state.prototype) state.prototype.links = state.prototype.links.filter((link) => !controls.some((control) => control.rect && interactionBlockReason(control) && sameInteractionControl(link, control)))
+            state.interactions = { sourceSha256: report.sourceSha256 ?? null, status: reason || report.status === 'missing' ? 'missing' : controls.some((control) => control.status !== 'linked') ? 'partial' : 'complete', controls, ...(reason || report.reason ? { reason: reason ?? String(report.reason) } : {}) }
+          }
+        }))
+      }
+    }
+    if (node.captures) node.capture = node.captures[manifest.variants?.[0]?.id ?? manifest.app?.platforms?.[0]?.platform ?? Object.keys(node.captures)[0]] ?? node.capture
+  }
+  await Promise.all(tasks)
+  if (map.interactionCoverage || map.nodes.some((node) => node.capture?.interactions || Object.values(node.captures ?? {}).some((capture) => capture.interactions))) {
+    const axes = map.nodes.some((node) => node.captures) ? [...new Set(map.nodes.flatMap((node) => Object.keys(node.captures ?? {})))] : [manifest.app?.platform === 'android-emulator' ? 'android' : 'ios']
+    const unknown = (Array.isArray(map.interactionCoverage?.unresolvedCaptures) ? map.interactionCoverage.unresolvedCaptures : []).filter((record) => record?.reason === 'unknown-or-uncaptured-source')
+    map.interactionCoverage = summarizeInteractions(map.nodes, axes, unknown)
+  }
+}
 
 // Parses a .scrmap zip (ArrayBuffer) into { manifest, map, images: Map<path, objectURL> }.
 // v1 bundles inline JSON flows in map.json; v2 bundles ship argent flow YAML
@@ -24,6 +70,7 @@ export async function loadBundle(buffer) {
     throw new Error(`unsupported formatVersion ${manifest.formatVersion}`)
   }
   const map = JSON.parse(text('map.json'))
+  await validateCaptures(map, manifest, files)
   if (manifest.formatVersion >= 2) {
     map.flows = Object.keys(files)
       .filter((n) => /^flows\/.+\.yaml$/.test(n))
@@ -52,13 +99,14 @@ export async function loadBundle(buffer) {
 // .diff.scrmap → the internal bundle shape. Head is the primary graph; base-only
 // (removed) nodes and edges are merged in so the map shows what disappeared.
 // Screenshot paths get side-prefixed keys ("head/screens/…") into `images`.
-function loadDiffBundle(files, manifest, text) {
+async function loadDiffBundle(files, manifest, text) {
   if (![1, 2].includes(manifest.formatVersion)) {
     throw new Error(`unsupported diff formatVersion ${manifest.formatVersion}`)
   }
   const diff = JSON.parse(text('diff.json'))
   const baseMap = JSON.parse(text('base/map.json'))
   const headMap = JSON.parse(text('head/map.json'))
+  await Promise.all([validateCaptures(baseMap, manifest, files, 'base/'), validateCaptures(headMap, manifest, files, 'head/')])
 
   const images = new Map()
   for (const [name, data] of Object.entries(files)) {
@@ -118,7 +166,9 @@ function loadDiffBundle(files, manifest, text) {
     edges.push({ ...e, diffStatus: 'D' })
   }
 
-  return { manifest, map: { nodes, edges, flows: [] }, images, diff }
+  const axes = manifest.app?.platforms?.map((platform) => platform.platform) ?? [manifest.app?.platform === 'android-emulator' ? 'android' : 'ios']
+  const unknown = [...(headMap.interactionCoverage?.unresolvedCaptures ?? []), ...(baseMap.interactionCoverage?.unresolvedCaptures ?? [])].filter((record) => record.reason === 'unknown-or-uncaptured-source')
+  return { manifest, map: { nodes, edges, flows: [], interactionCoverage: summarizeInteractions(nodes, axes, unknown) }, images, diff }
 }
 
 // Do these two bundles describe the same app? Names alone are too strict a
@@ -299,6 +349,34 @@ export function platformsOf(bundle) {
   return [{ platform, label, device: app.device ?? null }]
 }
 
+// The variants (app settings such as language or theme) a bundle carries, in
+// capture order. Empty for a bundle without a variants axis.
+export function variantsOf(bundle) {
+  const v = bundle?.manifest?.variants
+  return Array.isArray(v) ? v.filter((x) => x?.id).map((x) => ({ ...x, label: x.label ?? x.id })) : []
+}
+
+// Same swap as withPlatform, for the variants axis: a variants bundle keys
+// each node's `captures` by variant id instead of by platform.
+export function withVariant(bundle, variant) {
+  if (!bundle || !variant || !variantsOf(bundle).length) return bundle
+  return {
+    ...bundle,
+    map: {
+      ...bundle.map,
+      nodes: bundle.map.nodes.map((n) => {
+        const cap = n.captures?.[variant]
+        const capBase = n.capturesBase?.[variant]
+        return {
+          ...n,
+          capture: cap ?? { status: 'missing', screenshot: null, states: [] },
+          ...(n.capturesBase ? { captureBase: capBase ?? null } : {}),
+        }
+      }),
+    },
+  }
+}
+
 // Point every node's `capture` at one platform's captures. Applied before the
 // map/diff merge, so nothing downstream needs to know platforms exist — it
 // keeps reading `capture` exactly as it always has.
@@ -311,14 +389,11 @@ export function withPlatform(bundle, platform) {
     map: {
       ...bundle.map,
       nodes: nodes.map((n) => {
-        // a node captured on only one platform keeps the capture it has rather
-        // than blanking out — a screen that exists on iOS and not Android is
-        // better shown than hidden
         const cap = n.captures?.[platform]
         const capBase = n.capturesBase?.[platform]
         return {
           ...n,
-          ...(cap ? { capture: cap } : {}),
+          capture: cap ?? { status: 'missing', screenshot: null, states: [] },
           ...(n.capturesBase ? { captureBase: capBase ?? null } : {}),
         }
       }),
