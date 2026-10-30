@@ -321,3 +321,14 @@ Controls may include boolean `disabled` and `destructive` flags. Either flag set
 `map.interactionCoverage` summarizes captures and controls across all axes. `interaction-coverage.json` stores the same report in the bundle and working output. The viewer checks screenshot hashes again and downgrades stale reports. Prototype displays the selected capture's report with unresolved reasons. Completion describes captured navigation; it does not mean backend operations or destructive controls are simulated.
 
 A Back link may set `scope: "screen"` to close its screen across intermediate saved states. The inventory compiler assigns this scope to Close controls. Without the scope, Back returns to the previous Visit. Both use `fallbackTo` when no matching history exists.
+
+## Capture availability
+
+The viewer derives availability from image files present in the loaded bundle.
+Axis choice status dots and tooltips show compatible saved captures for the current screen and
+Capture State while preserving the other selected axes. **Available captures**
+lists each stored descriptor, its saved base-screen and named-state counts, and
+whether the current Visit is captured. Selecting a row applies its complete
+combination in one URL history entry. Configured combinations with no image and absent language/appearance combinations
+stay visible as **Not captured** with zero counts. These statuses describe the loaded bundle, not a
+live capture process or runtime connection.

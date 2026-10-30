@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { captureProfiles, selectionOf, resolveProfile, readPanes } from './captureSelection'
+import { captureProfiles, selectionOf, resolveProfile, readPanes, captureAvailability } from './captureSelection'
 import { createNavigation } from './navigation'
 import { loadBundle, mergeBundles, sameApp, platformsOf, withPlatform, variantsOf, withVariant } from './loadBundle'
 
@@ -185,6 +185,8 @@ export function useBundles() {
   const setCaptureAxis = useCallback((key, value) => {
     navigation.change(Object.fromEntries(Object.entries({ ...selection, [key]: value }).map(([name, item]) => [name, item || '$unspecified'])))
   }, [navigation, selection])
+  const setCaptureSelection = useCallback((value) => navigation.change(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, item || '$unspecified']))), [navigation])
+  const availability = useMemo(() => (plain ?? changes) ? captureAvailability(plain ?? changes, profiles, screen, state) : [], [plain, changes, profiles, screen, state])
   const comparing = location.compare === '1'
   const savedPanes = useMemo(() => readPanes(location.panes), [location.panes])
   const panes = useMemo(() => savedPanes.length >= 2 ? savedPanes : [selection, selectionOf(profiles.find((p) => p.id !== selectedProfile?.id) ?? profiles[0])], [savedPanes, selection, profiles, selectedProfile])
@@ -220,7 +222,7 @@ export function useBundles() {
 
   return {
     plain, changes, bundle, mode, setMode,
-    sourceBundle: plain ?? bundle, profiles, selection, setCaptureAxis, comparing, setComparing, panes, setPanes,
+    sourceBundle: plain ?? bundle, profiles, selection, setCaptureAxis, setCaptureSelection, availability, comparing, setComparing, panes, setPanes,
     hasChanges: !!changes, overlaid,
     platforms, platform: activePlatform, setPlatform,
     variants, variant: activeVariant, setVariant, screen, setScreen, state, setState, highlights, setHighlights, canBack, canClose, visit, back,

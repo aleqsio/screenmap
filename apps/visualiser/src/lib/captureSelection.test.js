@@ -25,3 +25,29 @@ test('pane configuration round-trips explicit OS versions and bounds malformed U
   assert.deepEqual(readPanes('{}'), [])
   assert.equal(readPanes(JSON.stringify([...panes, ...panes, ...panes])).length, 4)
 })
+
+test('availability counts actual saved base/state images and compatible choices for the current Visit', async () => {
+  const { captureAvailability, compatibleCaptureCount, availabilityCombinations } = await import('./captureSelection.js')
+  const manifest = { app: { platform: 'ios-simulator' }, variants: [{ id: 'en-light' }, { id: 'en-dark' }, { id: 'ar-dark' }] }
+  const bundle = { manifest, images: new Map([['light.png', 'bytes'], ['dark.png', 'bytes'], ['menu.png', 'bytes']]), map: { nodes: [
+    { id: 'home', captures: {
+      'en-light': { screenshot: 'light.png', states: [] },
+      'en-dark': { screenshot: 'dark.png', states: [{ name: 'menu', screenshot: 'menu.png' }, { name: 'absent', screenshot: 'not-in-bundle.png' }] },
+      'ar-dark': { screenshot: 'not-in-bundle.png', states: [] },
+    } },
+  ] } }
+  const profiles = captureProfiles(manifest)
+  const availability = captureAvailability(bundle, profiles, 'home', 'menu')
+  assert.deepEqual(availability.map(({ baseCount, stateCount, currentAvailable }) => ({ baseCount, stateCount, currentAvailable })), [
+    { baseCount: 1, stateCount: 0, currentAvailable: false },
+    { baseCount: 1, stateCount: 1, currentAvailable: true },
+    { baseCount: 0, stateCount: 0, currentAvailable: false },
+  ])
+  assert.equal(compatibleCaptureCount(availability, selectionOf(profiles[0]), 'appearance', 'dark'), 1)
+  assert.equal(compatibleCaptureCount(availability, selectionOf(profiles[1]), 'language', 'ar'), 0)
+  assert.equal(captureAvailability(bundle, profiles, 'missing')[1].currentAvailable, false)
+  const missingArabicLight = availabilityCombinations(availability).find((profile) => profile.language === 'ar' && profile.appearance === 'light')
+  assert.equal(missingArabicLight.unconfigured, true)
+  assert.equal(missingArabicLight.baseCount, 0)
+  assert.equal(missingArabicLight.currentAvailable, false)
+})

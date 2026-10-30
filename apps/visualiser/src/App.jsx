@@ -22,6 +22,7 @@ export default function App() {
         platforms={b.platforms}
         platform={b.platform}
         setPlatform={b.setPlatform}
+        availability={b.availability}
         profiles={b.profiles}
         selection={b.selection}
         setCaptureAxis={b.setCaptureAxis}

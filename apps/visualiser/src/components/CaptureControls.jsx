@@ -1,21 +1,22 @@
+import { compatibleCaptureCount } from '../lib/captureSelection'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 
 const names = { platform: 'Platform', osVersion: 'OS version', language: 'Language', appearance: 'Appearance' }
 const labels = { ios: 'iOS', android: 'Android', en: 'English', ar: 'Arabic', light: 'Light', dark: 'Dark', system: 'System' }
 
-export default function CaptureControls({ profiles, selection, onChange, compact = false }) {
+export default function CaptureControls({ profiles, selection, onChange, availability, compact = false }) {
   const matches = profiles.filter((profile) => Object.keys(names).every((key) => (profile[key] ?? '') === (selection[key] ?? '')))
   return <div className={`flex flex-wrap items-end gap-3 ${compact ? 'text-xs' : 'text-sm'}`}>
     {Object.keys(names).map((key) => {
       const available = key === 'osVersion' ? profiles.filter((p) => (p.platform ?? '') === selection.platform) : profiles
       const values = [...new Set(available.map((p) => p[key] ?? ''))]
       if (!values.includes(selection[key] ?? '')) values.push(selection[key] ?? '')
-      const options = values.map((value) => ({ value, label: labels[value] ?? (value || 'Unspecified') }))
+      const options = values.map((value) => ({ value, label: labels[value] ?? (value || 'Unspecified'), count: availability ? compatibleCaptureCount(availability, selection, key, value) : null }))
       return <div key={key} className="min-w-0"><div className="mb-1 text-[11px] font-medium text-muted-foreground">{names[key]}</div>
         {options.length <= 3 && key !== 'osVersion' ? <ToggleGroup type="single" variant="outline" size="sm" spacing={0} value={selection[key] || '$unspecified'} onValueChange={(value) => { if (value) onChange(key, value === '$unspecified' ? '' : value) }} aria-label={names[key]}>
-          {options.map((option) => <ToggleGroupItem key={option.value} value={option.value || '$unspecified'} className="h-8 px-2 text-xs data-[state=on]:bg-foreground data-[state=on]:text-background">{option.label}</ToggleGroupItem>)}
+          {options.map((option) => <ToggleGroupItem key={option.value} value={option.value || '$unspecified'} aria-label={option.count === null ? option.label : `${option.label}: ${option.count ? 'Captured' : 'Not captured'} (${option.count} compatible captures)`} title={option.count === null ? undefined : `${option.count} captures for this screen and state with the other selected options`} className="h-8 px-2 text-xs data-[state=on]:bg-foreground data-[state=on]:text-background">{option.label}{option.count !== null && <span aria-hidden="true" className={`ml-1 size-1.5 shrink-0 rounded-full ${option.count ? 'bg-emerald-500' : 'bg-muted-foreground/40'}`} />}</ToggleGroupItem>)}
         </ToggleGroup> : <select aria-label={names[key]} value={selection[key] ?? ''} onChange={(event) => onChange(key, event.target.value)} className="h-8 max-w-40 rounded-md border bg-background px-2 text-xs">
-          {options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          {options.map((option) => <option key={option.value} value={option.value}>{option.label}{option.count !== null ? ` · ${option.count ? 'Captured' : 'Not captured'} (${option.count})` : ''}</option>)}
         </select>}
       </div>
     })}

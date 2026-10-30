@@ -4,12 +4,13 @@ import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import TopBar from './TopBar'
 import CaptureControls from './CaptureControls'
+import CaptureAvailability from './CaptureAvailability'
 import PrototypeCapture from './PrototypeCapture'
 import { resolveProfile, captureForProfile } from '../lib/captureSelection'
 import { flowResolution } from '../lib/loadBundle'
 import { nodeLabel } from '../lib/label'
 
-export default function Prototype({ sourceBundle, profiles, selection, setCaptureAxis, comparing, setComparing, panes, setPanes, bundle, mode, setMode, hasChanges, overlaid, platforms, platform, setPlatform, variants, variant, setVariant, screen, setScreen, state, setState, highlights, setHighlights, canBack, canClose, visit, back, open, closeChanges }) {
+export default function Prototype({ sourceBundle, profiles, selection, setCaptureAxis, setCaptureSelection, availability, comparing, setComparing, panes, setPanes, bundle, mode, setMode, hasChanges, overlaid, platforms, platform, setPlatform, variants, variant, setVariant, screen, setScreen, state, setState, highlights, setHighlights, canBack, canClose, visit, back, open, closeChanges }) {
   const { manifest, map, images } = bundle
   const nodes = useMemo(() => new Map(map.nodes.map((n) => [n.id, n])), [map])
   const start = map.nodes.find((n) => n.urlPath === '/' && n.capture.prototype?.links?.length)?.id
@@ -51,7 +52,7 @@ export default function Prototype({ sourceBundle, profiles, selection, setCaptur
   if (state && !captureStates.some((item) => item.name === state)) captureStates.push({ name: state })
   return (
     <div className="relative h-full overflow-auto bg-background">
-      <TopBar manifest={manifest} mode={mode} setMode={setMode} hasChanges={hasChanges} overlaid={overlaid} stats={stats} platforms={comparing ? [] : platforms} platform={platform} setPlatform={setPlatform} variants={comparing ? [] : variants} variant={variant} setVariant={setVariant} profiles={comparing ? undefined : profiles} selection={selection} setCaptureAxis={setCaptureAxis} inFlow onOpenBuffer={open} onCloseChanges={closeChanges} />
+      <TopBar availability={availability} manifest={manifest} mode={mode} setMode={setMode} hasChanges={hasChanges} overlaid={overlaid} stats={stats} platforms={comparing ? [] : platforms} platform={platform} setPlatform={setPlatform} variants={comparing ? [] : variants} variant={variant} setVariant={setVariant} profiles={comparing ? undefined : profiles} selection={selection} setCaptureAxis={setCaptureAxis} inFlow onOpenBuffer={open} onCloseChanges={closeChanges} />
       <main className="mx-auto flex max-w-[1800px] flex-wrap items-start justify-center gap-6 px-4 pb-6 pt-6">
         <section className="flex min-w-0 flex-1 flex-col items-center gap-3">
           <div className="flex w-full max-w-md items-center gap-2">
@@ -65,7 +66,8 @@ export default function Prototype({ sourceBundle, profiles, selection, setCaptur
             {panelCaptures.map((item, index) => <section key={index} aria-label={`Capture panel ${index + 1}`} className={`flex min-w-0 flex-col items-center gap-3 ${comparing ? 'w-full flex-1 basis-64 rounded-lg border bg-card/50 p-3' : 'w-full'}`}>
               {comparing && <div className="w-full">
                 <div className="mb-3 flex items-center justify-between"><strong className="text-xs">Panel {index + 1}{item.profile?.device ? ` · ${item.profile.device}` : ''}</strong>{panes.length > 2 && <Button variant="ghost" size="icon-sm" aria-label={`Remove panel ${index + 1}`} onClick={() => setPanes(panes.filter((_, i) => i !== index))}><X /></Button>}</div>
-                <CaptureControls profiles={profiles} selection={item.selection} compact onChange={(key, value) => setPanes(panes.map((pane, i) => i === index ? { ...pane, [key]: value } : pane))} />
+                <CaptureControls availability={availability} profiles={profiles} selection={item.selection} compact onChange={(key, value) => setPanes(panes.map((pane, i) => i === index ? { ...pane, [key]: value } : pane))} />
+                <div className="mt-1"><CaptureAvailability availability={availability} selection={item.selection} compact onSelect={(value) => setPanes(panes.map((pane, i) => i === index ? value : pane))} /></div>
               </div>}
               {item.capture && ((item.capture.status ?? 'ok') !== 'ok' || item.capture.needsNavigation || item.capture.note) && <p className="max-w-sm rounded border bg-muted p-2 text-xs" role="status">{item.capture.status === 'auth-wall' ? 'Authentication state differs' : (item.capture.status ?? 'ok') !== 'ok' ? item.capture.status : 'Capture note'}{item.capture.note ? `: ${item.capture.note}` : item.capture.needsNavigation ? ': requires navigation' : ''}</p>}
               {comparing && <p className="text-xs text-muted-foreground">Navigation coverage · {item.displayed?.interactions?.status === 'complete' ? 'Complete' : item.displayed?.interactions?.status === 'partial' ? 'Partial' : 'Not inventoried'}</p>}
@@ -94,6 +96,7 @@ export default function Prototype({ sourceBundle, profiles, selection, setCaptur
               </select>
             )}
           </div>}
+          {!comparing && <CaptureAvailability availability={availability} selection={selection} onSelect={setCaptureSelection} />}
           <div className="mt-4 border-t pt-4">
             <div className="text-xs text-muted-foreground">Highlights</div>
             <ToggleGroup type="single" variant="outline" size="sm" spacing={0} value={hoverOnly ? 'hover' : 'always'} onValueChange={setHighlights} aria-label="Highlights" className="mt-2 flex w-full">

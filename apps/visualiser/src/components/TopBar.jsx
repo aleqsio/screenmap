@@ -46,7 +46,7 @@ function ThemeMenu() {
 
 const PLATFORM_LABEL = { ios: 'iOS', android: 'Android' }
 
-export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, stats, diffStats, platforms = [], platform, setPlatform, variants = [], variant, setVariant, onOpenBuffer, onCloseChanges, profiles, selection, setCaptureAxis, inFlow = false }) {
+export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, stats, diffStats, platforms = [], platform, setPlatform, variants = [], variant, setVariant, onOpenBuffer, onCloseChanges, profiles, selection, setCaptureAxis, availability, inFlow = false }) {
   const diffMode = mode === 'changes'
   // The switcher only earns its space when there is something to switch to; a
   // single-platform map keeps the bar it always had.
@@ -159,7 +159,7 @@ export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, 
           </ToggleGroup>
         )}
 
-        {profiles && selection && <CaptureControls profiles={profiles} selection={selection} onChange={setCaptureAxis} />}
+        {profiles && selection && <CaptureControls availability={availability} profiles={profiles} selection={selection} onChange={setCaptureAxis} />}
 
         <div className="hidden items-center gap-3 md:flex">
           {diffMode && diffStats ? (
