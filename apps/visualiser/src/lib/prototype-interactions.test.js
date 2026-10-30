@@ -58,6 +58,8 @@ test('first-map pack derives exact RTL menu, dismiss and Back hotspots from runt
     const bundlePath = path.join(root, 'first.scrmap')
     execFileSync('node', [packer, root, '--variants', 'en,ar', '--out', bundlePath])
     const { map } = await loadBundle(fs.readFileSync(bundlePath))
+    assert.equal(JSON.parse(fs.readFileSync(path.join(out, 'interaction-coverage.json'), 'utf8')).status, 'complete')
+    assert.equal(JSON.parse(new TextDecoder().decode(unzipSync(fs.readFileSync(bundlePath))['interaction-coverage.json'])).status, 'complete')
     assert.equal(map.interactionCoverage.status, 'complete')
     assert.equal(map.interactionCoverage.linked, 8)
     assert.deepEqual(map.nodes[0].captures.ar.prototype.links[0].rect, [0.84, 0.07, 0.12, 0.06])

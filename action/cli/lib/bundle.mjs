@@ -188,6 +188,7 @@ export function packBaseline({ graph, platforms, screensDir, flowsDir, captureSt
     writeJson(path.join(stage, 'graph.json'), graph)
     writeJson(path.join(stage, 'capture-status.json'), captureStatus)
     writeJson(path.join(stage, 'interactions.json'), { version: 1, captures: interactions })
+    writeJson(path.join(stage, 'interaction-coverage.json'), interactionCoverage)
     ensureDir(path.join(stage, 'screens')); ensureDir(path.join(stage, 'flows'))
     for (const s of sides) {
       const dest = ensureDir(path.join(stage, 'screens', ...(multi ? [s.platform] : [])))
@@ -195,7 +196,7 @@ export function packBaseline({ graph, platforms, screensDir, flowsDir, captureSt
     }
     for (const f of flowFiles) fs.copyFileSync(path.join(flowsDir, f), path.join(stage, 'flows', f))
     fs.rmSync(out, { force: true })
-    execFileSync('zip', ['-r', '-q', out, 'manifest.json', 'map.json', 'graph.json', 'capture-status.json', 'interactions.json', 'screens', 'flows'], { cwd: stage })
+    execFileSync('zip', ['-r', '-q', out, 'manifest.json', 'map.json', 'graph.json', 'capture-status.json', 'interactions.json', 'interaction-coverage.json', 'screens', 'flows'], { cwd: stage })
   } finally { fs.rmSync(stage, { recursive: true, force: true }) }
   log(`packed ${out}: ${nodes.length} nodes, ${shotCount} shots across ${sides.map((s) => s.platform).join('+')}, ${flowFiles.length / 2 | 0} flows`)
   return { manifest, map }

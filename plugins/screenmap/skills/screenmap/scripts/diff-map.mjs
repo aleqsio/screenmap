@@ -386,7 +386,9 @@ try {
   fs.writeFileSync(path.join(stage, 'diff.json'), JSON.stringify(diff, null, 2))
   for (const [side, graph] of [['base', baseGraph], ['head', headGraph]]) {
     fs.mkdirSync(path.join(stage, side, 'screens'), { recursive: true })
-    fs.writeFileSync(path.join(stage, side, 'map.json'), JSON.stringify(sideMap(graph, side), null, 2))
+    const packedSide = sideMap(graph, side)
+    fs.writeFileSync(path.join(stage, side, 'map.json'), JSON.stringify(packedSide, null, 2))
+    fs.writeFileSync(path.join(stage, side, 'interaction-coverage.json'), JSON.stringify(packedSide.interactionCoverage, null, 2))
     for (const file of ['interactions.json', 'hotspots.json']) {
       const source = path.join(diffDir, side, file)
       if (fs.existsSync(source)) fs.copyFileSync(source, path.join(stage, side, file))

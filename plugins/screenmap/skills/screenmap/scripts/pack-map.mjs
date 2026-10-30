@@ -139,6 +139,7 @@ const nodes = graph.routes.map((r) => {
 
 const interactionCoverage = attachPrototype(nodes, axis, hotspots, Object.fromEntries(axis.map((pf) => [pf, shotsDirFor(pf)])), interactions)
 const map = { nodes, edges: graph.edges ?? [], flows: [], interactionCoverage }
+fs.writeFileSync(path.join(base, 'interaction-coverage.json'), JSON.stringify(interactionCoverage, null, 2) + '\n')
 // A flow sidecar records the device it was recorded on; with several platforms
 // prefer the one whose sidecar names that platform, else fall back to any.
 const deviceFor = (pf) => flows.find((f) => f.platform === pf && f.device)?.device ?? (multi ? null : flows.find((f) => f.device)?.device ?? null)
@@ -165,6 +166,7 @@ const stage = fs.mkdtempSync(path.join(base, '.pack-'))
 try {
   fs.writeFileSync(path.join(stage, 'manifest.json'), JSON.stringify(manifest, null, 2))
   fs.writeFileSync(path.join(stage, 'map.json'), JSON.stringify(map, null, 2))
+  fs.writeFileSync(path.join(stage, 'interaction-coverage.json'), JSON.stringify(interactionCoverage, null, 2))
   fs.writeFileSync(path.join(stage, 'interactions.json'), JSON.stringify({ version: 1, captures: interactions }, null, 2))
   fs.mkdirSync(path.join(stage, 'screens'))
   for (const pf of axis) {
@@ -178,7 +180,7 @@ try {
   const date = new Date().toISOString().slice(0, 10)
   outPath = path.resolve(outPath ?? path.join(base, `${String(appName).replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^\.+/, '') || 'app'}-${date}.scrmap`))
   fs.rmSync(outPath, { force: true })
-  execFileSync('zip', ['-r', '-q', outPath, 'manifest.json', 'map.json', 'interactions.json', 'screens', 'flows'], { cwd: stage })
+  execFileSync('zip', ['-r', '-q', outPath, 'manifest.json', 'map.json', 'interactions.json', 'interaction-coverage.json', 'screens', 'flows'], { cwd: stage })
   const kb = Math.round(fs.statSync(outPath).size / 1024)
   const shotCount = axis.reduce((n, pf) => n + shotsByPlatform[pf].length, 0)
   console.log(`wrote ${outPath} (${kb} KB, ${nodes.length} nodes, ${map.edges.length} edges, ${flows.length} flows, ${shotCount} screenshots across ${axis.join('+')})`)
