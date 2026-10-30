@@ -18,6 +18,8 @@ All three read and write the same `.scrmap` bundle, so a map recorded locally wo
 
 **Want to see it first?** Open [app.screenmap.dev/?template=bluesky](https://app.screenmap.dev/?template=bluesky) for a full map of the Bluesky client: 70 screens, 126 recorded flows, captured in one run.
 
+A first local map also records visible navigation controls for Prototype mode: Back/Close, tabs, three-dot menus and their captured dismissal states. Packing creates hotspots from the observed interaction inventory in each language. The viewer reports missing or unresolved controls, so a screenshot-only map cannot be mistaken for complete navigation. See the [interaction capture workflow](plugins/screenmap/skills/screenmap/references/interactions.md).
+
 ## Words used in these docs
 
 - **Map** (`.scrmap`) is one bundle holding every screen of the app: screenshots, routes, the edges between screens, and the recorded flows. It is a zip, and the viewer opens it.

@@ -18,7 +18,7 @@ const TEMPLATES = {
 }
 
 async function fetchBundle(url) {
-  const res = await fetch(url)
+  const res = await fetch(url, { cache: 'no-cache' })
   const type = res.headers.get('content-type') ?? ''
   if (!res.ok || type.includes('text/html')) throw new Error(`Couldn't load ${url} (${res.status})`)
   return loadBundle(await res.arrayBuffer())
@@ -27,7 +27,7 @@ async function fetchBundle(url) {
 export function useBundles() {
   const [navigation] = useState(() => createNavigation(window))
   const [location, setLocation] = useState(() => navigation.read())
-  const { mode, screen, state, platform, variant, highlights, canBack } = location
+  const { mode, screen, state, platform, variant, highlights, canBack, canClose } = location
   const [plain, setPlain] = useState(null)
   const [changes, setChanges] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -42,7 +42,7 @@ export function useBundles() {
   const visit = useCallback((value, captureState = null) => navigation.visit(value, captureState), [navigation])
   const setState = useCallback((value) => navigation.visit(screen, value), [navigation, screen])
   const setHighlights = useCallback((value) => { if (value) navigation.change({ highlights: value === 'hover' ? 'hover' : null }) }, [navigation])
-  const back = useCallback((fallbackTo) => navigation.back(fallbackTo), [navigation])
+  const back = useCallback((fallbackTo, scope) => navigation.back(fallbackTo, scope), [navigation])
   useEffect(() => { const modeParam = new URLSearchParams(window.location.search).get('mode'); if (modeParam && !['map', 'changes', 'prototype'].includes(modeParam)) navigation.change({ mode: 'map' }, { replace: true }) }, [navigation])
 
   const place = useCallback((loaded) => {
@@ -211,7 +211,7 @@ export function useBundles() {
     plain, changes, bundle, mode, setMode,
     hasChanges: !!changes, overlaid,
     platforms, platform: activePlatform, setPlatform,
-    variants, variant: activeVariant, setVariant, screen, setScreen, state, setState, highlights, setHighlights, canBack, visit, back,
+    variants, variant: activeVariant, setVariant, screen, setScreen, state, setState, highlights, setHighlights, canBack, canClose, visit, back,
     open, closeChanges, loadDemo, busy, error, demoAvailable, gen,
   }
 }

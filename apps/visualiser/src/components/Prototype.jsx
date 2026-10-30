@@ -6,7 +6,7 @@ import TopBar from './TopBar'
 import { flowResolution } from '../lib/loadBundle'
 import { nodeLabel } from '../lib/label'
 
-export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid, platforms, platform, setPlatform, variants, variant, setVariant, screen, setScreen, state, setState, highlights, setHighlights, canBack, visit, back, open, closeChanges }) {
+export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid, platforms, platform, setPlatform, variants, variant, setVariant, screen, setScreen, state, setState, highlights, setHighlights, canBack, canClose, visit, back, open, closeChanges }) {
   const { manifest, map, images } = bundle
   const nodes = useMemo(() => new Map(map.nodes.map((n) => [n.id, n])), [map])
   const start = map.nodes.find((n) => n.urlPath === '/' && n.capture.prototype?.links?.length)?.id
@@ -54,6 +54,8 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
   const displayed = state ? capture?.states?.find((s) => s.name === state) ?? capture : capture
   const img = displayed?.screenshot ? images.get(displayed.screenshot) : null
   const links = displayed?.prototype?.links ?? []
+  const interactionReport = displayed?.interactions
+  const unresolvedControls = interactionReport?.controls?.filter((control) => control.status !== 'linked') ?? []
   const viewport = displayed?.prototype?.viewport ?? capture?.prototype?.viewport
   const frameAspect = viewport ? viewport.width / viewport.height : aspect
   const scroll = displayed?.prototype?.scroll
@@ -98,7 +100,7 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
               <img src={img} alt={`Capture: ${nodeLabel(current)}`} className="block h-auto w-full" />
               {links.map((link, i) => {
                 const [x, y, w, h] = link.rect
-                return <button key={`${link.to}-${i}`} type="button" disabled={link.action === 'back' && !canBack && !link.fallbackTo} aria-label={link.label} title={link.label} onClick={() => link.action === 'back' ? back(link.fallbackTo) : navigate(link.to, link.targetState ?? null)} className={`absolute rounded border-2 disabled:opacity-30 hover:border-primary/60 hover:bg-primary/25 focus-visible:border-primary/60 focus-visible:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${hoverOnly ? 'border-transparent bg-transparent' : 'border-primary/60 bg-primary/10'}`} style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
+                return <button key={`${link.to}-${i}`} type="button" disabled={link.action === 'back' && !(link.scope === 'screen' ? canClose : canBack) && !link.fallbackTo} aria-label={link.label} title={link.label} onClick={() => link.action === 'back' ? back(link.fallbackTo, link.scope) : navigate(link.to, link.targetState ?? null)} className={`absolute rounded border-2 disabled:opacity-30 hover:border-primary/60 hover:bg-primary/25 focus-visible:border-primary/60 focus-visible:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${hoverOnly ? 'border-transparent bg-transparent' : 'border-primary/60 bg-primary/10'}`} style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
               })}
               </div>
             </div>
@@ -137,6 +139,13 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
             {connections.map((node) => <Button key={node.id} variant="ghost" size="sm" className="h-auto justify-start whitespace-normal text-left" onClick={() => navigate(node.id)}>{nodeLabel(node)}</Button>)}
             {!connections.length && <p className="py-2 text-muted-foreground">No connected screens recorded.</p>}
           </div>
+          <details className="mt-4 border-t pt-4">
+            <summary className="cursor-pointer font-semibold">Navigation coverage · {interactionReport?.status === 'complete' ? 'Complete' : interactionReport?.status === 'partial' ? 'Partial' : 'Not inventoried'}</summary>
+            <p className="mt-2 text-xs text-muted-foreground">{interactionReport ? `${interactionReport.controls.filter((control) => control.status === 'linked').length} linked · ${unresolvedControls.length} unresolved controls` : 'This capture has no control inventory. Its visible buttons may need capture work.'}</p>
+            {interactionReport?.reason && <p className="mt-2 text-xs text-muted-foreground">{interactionReport.reason}</p>}
+            {unresolvedControls.length > 0 && <ul className="mt-2 space-y-2 text-xs">{unresolvedControls.map((control, index) => <li key={`${control.id}-${index}`}><strong>{control.label || 'Unlabeled control'}</strong>: {control.reason}</li>)}</ul>}
+            {map.interactionCoverage && <p className="mt-3 text-xs text-muted-foreground">Whole map: {map.interactionCoverage.complete}/{map.interactionCoverage.captures} captures with complete navigation coverage.</p>}
+          </details>
         </aside>
       </main>
     </div>

@@ -6,7 +6,7 @@ export function createNavigation(window) {
   const read = () => {
     const params = new URLSearchParams(window.location.search)
     const values = Object.fromEntries(keys.map((key) => [key, params.get(key)]))
-    return { ...values, mode: ['map', 'changes', 'prototype'].includes(values.mode) ? values.mode : 'map', canBack: window.history.state?.screenmap?.token === token && (window.history.state.screenmap.backSteps ?? 0) > 0 }
+    return { ...values, mode: ['map', 'changes', 'prototype'].includes(values.mode) ? values.mode : 'map', canBack: window.history.state?.screenmap?.token === token && (window.history.state.screenmap.backSteps ?? 0) > 0, canClose: window.history.state?.screenmap?.token === token && (window.history.state.screenmap.closeSteps ?? 0) > 0 }
   }
   const notify = () => listeners.forEach((listener) => listener(read()))
   const change = (values, { replace = false, visit = false } = {}) => {
@@ -17,9 +17,11 @@ export function createNavigation(window) {
     }
     const prior = window.history.state?.screenmap
     const backSteps = prior?.token === token ? prior.backSteps ?? 0 : 0
+    const closeSteps = prior?.token === token ? prior.closeSteps ?? 0 : 0
     const newMode = values.mode && values.mode !== read().mode
     const nextSteps = newMode ? 0 : replace ? backSteps : visit ? 1 : backSteps ? backSteps + 1 : 0
-    window.history[replace ? 'replaceState' : 'pushState']({ ...window.history.state, screenmap: { token, backSteps: nextSteps } }, '', url)
+    const nextCloseSteps = newMode ? 0 : replace ? closeSteps : visit && values.screen !== read().screen ? 1 : closeSteps ? closeSteps + 1 : 0
+    window.history[replace ? 'replaceState' : 'pushState']({ ...window.history.state, screenmap: { token, backSteps: nextSteps, closeSteps: nextCloseSteps } }, '', url)
     notify()
   }
   const onPop = () => notify()
@@ -28,9 +30,10 @@ export function createNavigation(window) {
     subscribe(listener) { if (!listeners.size) window.addEventListener('popstate', onPop); listeners.add(listener); return () => { listeners.delete(listener); if (!listeners.size) window.removeEventListener('popstate', onPop) } },
     change,
     visit(screen, state = null) { change({ screen, state }, { visit: true }) },
-    back(fallbackTo) {
+    back(fallbackTo, scope = 'visit') {
       const info = window.history.state?.screenmap
-      if (info?.token === token && info.backSteps > 0) window.history.go(-info.backSteps)
+      const steps = scope === 'screen' ? info?.closeSteps : info?.backSteps
+      if (info?.token === token && steps > 0) window.history.go(-steps)
       else if (typeof fallbackTo === 'string' && fallbackTo) change({ screen: fallbackTo, state: null }, { replace: true })
     },
     reset() { token = `${Date.now()}-${Math.random()}`; change({ screen: null, state: null }, { replace: true }) },
