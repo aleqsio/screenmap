@@ -1,6 +1,6 @@
 ---
 name: screenmap
-description: Generate a visual navigation map and captured interactive prototype of an Expo / React Native or NativeScript app. On the first map, inventory visible controls in every capture and language, verify Back/Close destinations, capture three-dot menus, sheets and their dismissal states, and record interactions.json so packing creates hotspots automatically. Report missing inventories and unresolved controls; route screenshots alone are not complete navigation. Statically parses expo-router, react-navigation, NativeScript or custom routes, captures iOS/Android variants, and diffs revisions into PR previews. Use for navigation maps, interactive screen prototypes, visual sitemaps or on-screen PR review.
+description: Generate a visual navigation map and captured interactive prototype of an Expo / React Native or NativeScript app. On the first map, inventory visible controls in every capture and language, verify Back/Close destinations, capture three-dot menus, sheets and their dismissal states, and record interactions.json so packing creates hotspots automatically. Mark destructive and disabled controls with explicit safety flags and unresolved reasons. Report missing inventories and unresolved controls; route screenshots alone are not complete navigation. Statically parses expo-router, react-navigation, NativeScript or custom routes, captures iOS/Android variants, and diffs revisions into PR previews. Use for navigation maps, interactive screen prototypes, visual sitemaps or on-screen PR review.
 ---
 
 # screenmap

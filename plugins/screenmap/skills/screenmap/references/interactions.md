@@ -6,7 +6,7 @@ Apply this workflow to every project, platform, language and capture state. The 
 
 1. Save the settled screenshot. Inspect its visible interactive controls with the device's accessibility or component tree. Compare with the screenshot to catch unlabeled icons, disabled controls and overlays. Keep frames in normalized screen coordinates. Read each RTL capture independently.
 2. Inventory all visible navigation controls: Back, Close, downward dismissal chevrons, tabs, rows, avatar/account buttons, three-dot menus, drawers and sheet triggers. Include controls on loading, empty and error screens. Mark non-navigation controls with a reason such as `Text input`, `Playback`, `Disabled`, `External system sheet`, or `Purchase; not executed`.
-3. Explore each safe navigation control. Save the source capture before the tap and verify the destination after it. A same-route change gets a named capture, such as `player--menu.png`. Inventory that state too. Record menu dismissal and safe menu destinations. Keep destructive or submitting controls unresolved with a specific reason.
+3. Explore each safe navigation control. Save the source capture before the tap and verify the destination after it. A same-route change gets a named capture, such as `player--menu.png`. Inventory that state too. Record menu dismissal and safe menu destinations. Set `destructive: true` on destructive controls and `disabled: true` on controls unavailable in that capture. Give them a reason-only outcome. Keep submitting controls unresolved with a specific reason.
 4. For Back and Close, verify the normal return path. Record `action: "back"` and a verified `fallbackTo` route when the app has a direct-link fallback. The compiler gives `kind: "close"` screen-level Back behavior: it skips that screen's menu/state visits and returns to its prior screen. Ordinary Back returns to the prior saved state. A fixed destination uses `to`. Dismissing a menu uses `to` for its owning route and omits `targetState` to return to Base. Confirm the returned state, rather than using the route filename as proof.
 5. Write the observed controls as JSON and run `record-interactions.mjs` after the final screenshot resize. Repeat for every base and named capture. Pack only after every capture has an inventory. Review `interaction-coverage.json`; report missing inventories and unresolved controls explicitly.
 
@@ -18,9 +18,12 @@ Done when every captured screen/state/variant is inventoried, every safe navigat
 [
   { "id": "close", "label": "Close", "rect": [0.04, 0.07, 0.12, 0.06], "kind": "close", "outcome": { "action": "back", "fallbackTo": "home" } },
   { "id": "more", "label": "More options", "rect": [0.84, 0.07, 0.12, 0.06], "kind": "menu", "outcome": { "to": "player", "targetState": "menu" } },
-  { "id": "share", "label": "Share", "rect": [0.70, 0.07, 0.12, 0.06], "kind": "other", "outcome": { "reason": "Disabled while audio is unavailable" } }
+  { "id": "share", "label": "Share", "rect": [0.70, 0.07, 0.12, 0.06], "kind": "other", "disabled": true, "outcome": { "reason": "Disabled while audio is unavailable" } },
+  { "id": "delete", "label": "Delete", "rect": [0.10, 0.80, 0.80, 0.06], "kind": "other", "destructive": true, "outcome": { "reason": "Destructive action; not executed" } }
 ]
 ```
+
+The recorder accepts only boolean safety flags. Flagged controls stay unresolved during packing and loading, even if an imported inventory adds a destination or a curated hotspot targets the same control. Flags come from observed availability and action behavior; labels alone do not classify a control.
 
 Use actual observed route IDs and frames. These coordinates are an example, not a template for another capture.
 

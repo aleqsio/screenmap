@@ -274,6 +274,8 @@ An optional root `interactions.json` stores `{ "version": 1, "captures": [...] }
 
 Each capture gains `interactions: { status, sourceSha256, controls, reason? }`. Each control has an `id`, `label`, `kind`, `rect`, `status` (`linked` or `unresolved`) and an optional unresolved `reason`. Capture status is `complete`, `partial`, or `missing`. A complete inventory with zero navigation controls is valid for a screen with none. Missing screenshots or inventories, stale hashes and invalid destination captures cannot establish complete navigation.
 
+Controls may include boolean `disabled` and `destructive` flags. Either flag set to `true` keeps the control unresolved and removes matching Prototype hotspots, including curated links. The recorder requires a reason-only outcome for flagged controls. Packers and the viewer enforce the flags independently; malformed flag values also block the control. Availability and action evidence supply the flags, without label-based classification. Existing inventories that omit both flags remain compatible.
+
 `map.interactionCoverage` summarizes captures and controls across all axes. `interaction-coverage.json` stores the same report in the bundle and working output. The viewer checks screenshot hashes again and downgrades stale reports. Prototype displays the selected capture's report with unresolved reasons. Completion describes captured navigation; it does not mean backend operations or destructive controls are simulated.
 
 A Back link may set `scope: "screen"` to close its screen across intermediate saved states. The inventory compiler assigns this scope to Close controls. Without the scope, Back returns to the previous Visit. Both use `fallbackTo` when no matching history exists.

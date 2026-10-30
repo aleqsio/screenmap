@@ -128,6 +128,49 @@ test('stale images, uncaptured targets and unobserved controls remain explicit u
   })
 })
 
+test('disabled and destructive controls remain inactive through recording, authored hotspots and bundle loading', async () => {
+  await fixture(async ({ root, out }) => {
+    const graph = { routes: [{ id: 'player', slug: 'player' }, { id: 'home', slug: 'home' }], edges: [] }
+    prepare(out, graph, { ios: { 'player.png': 'player', 'home.png': 'home' } })
+    const controls = [
+      { ...button('Delete', 'other', { reason: 'Destructive action; not executed' }), destructive: true },
+      { ...button('Share', 'other', { reason: 'No audio is available' }, [0.7, 0.07, 0.12, 0.06]), disabled: true },
+    ]
+    const controlsPath = path.join(root, 'controls.json')
+    fs.writeFileSync(controlsPath, JSON.stringify(controls))
+    execFileSync('node', [recorder, root, '--node', 'player', '--controls', controlsPath])
+    const inventoryPath = path.join(out, 'interactions.json')
+    const recorded = fs.readFileSync(inventoryPath, 'utf8')
+    for (const flags of [{ destructive: true }, { disabled: true }, { disabled: 'false' }]) {
+      fs.writeFileSync(controlsPath, JSON.stringify([{ ...button('Unsafe', 'navigate', { to: 'home' }), ...flags }]))
+      assert.throws(() => execFileSync('node', [recorder, root, '--node', 'player', '--controls', controlsPath], { stdio: 'pipe' }), /Blocked control|Invalid safety flag/)
+      assert.equal(fs.readFileSync(inventoryPath, 'utf8'), recorded)
+    }
+    // Imported inventories can bypass the recorder, so packers enforce the flags too.
+    const interactions = JSON.parse(recorded).captures
+    interactions[0].controls[0].outcome = { to: 'home' }
+    const hotspots = [{ node: 'player', variant: 'ios', sourceSha256: hash('player'), links: controls.map((control) => ({ label: control.label, rect: control.rect, to: 'home' })) }]
+    const bundlePath = path.join(root, 'safe.scrmap')
+    packBaseline({ graph, platforms: [{ platform: 'ios', screensDir: path.join(out, 'screens/ios') }], interactions, hotspots, appName: 'Player', out: bundlePath })
+    const { map } = await loadBundle(fs.readFileSync(bundlePath))
+    assert.equal(map.nodes[0].capture.prototype?.links.length ?? 0, 0)
+    assert.equal(map.nodes[0].capture.interactions.controls[0].destructive, true)
+    assert.equal(map.nodes[0].capture.interactions.controls[1].disabled, true)
+    assert.deepEqual(map.nodes[0].capture.interactions.controls.map((control) => control.status), ['unresolved', 'unresolved'])
+    // A modified bundle cannot reactivate an explicitly blocked control either.
+    const files = unzipSync(fs.readFileSync(bundlePath))
+    const edited = JSON.parse(new TextDecoder().decode(files['map.json']))
+    const capture = edited.nodes[0].capture
+    capture.prototype = { sourceSha256: hash('player'), links: hotspots[0].links }
+    capture.interactions.status = 'complete'
+    for (const control of capture.interactions.controls) control.status = 'linked'
+    files['map.json'] = new TextEncoder().encode(JSON.stringify(edited))
+    const loaded = (await loadBundle(zipSync(files))).map.nodes[0].capture
+    assert.equal(loaded.prototype?.links.length ?? 0, 0)
+    assert.deepEqual(loaded.interactions.controls.map((control) => control.status), ['unresolved', 'unresolved'])
+  })
+})
+
 
 test('a broad dismissal area does not swallow a small control; conflicting authored destinations stay unresolved', async () => {
   await fixture(async ({ root, out }) => {

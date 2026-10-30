@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { parseArgs } from 'node:util'
+import { interactionBlockReason } from './prototype-capture.mjs'
 
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
   node: { type: 'string' }, variant: { type: 'string', default: 'ios' },
@@ -34,6 +35,9 @@ for (const control of controls) {
   const rect = control.rect
   if (!Array.isArray(rect) || rect.length !== 4 || !rect.every(Number.isFinite) || rect[0] < 0 || rect[1] < 0 || rect[2] <= 0 || rect[3] <= 0 || rect[0] + rect[2] > 1.000001 || rect[1] + rect[3] > 1.000001) throw new Error(`Invalid normalized frame: ${control.id}`)
   const outcome = control.outcome
+  const blocked = interactionBlockReason(control)
+  if (blocked === 'invalid-safety-flag') throw new Error(`Invalid safety flag: ${control.id}`)
+  if (blocked && (typeof outcome?.reason !== 'string' || !outcome.reason.trim() || ['to', 'action', 'targetState', 'fallbackTo'].some((key) => outcome[key] !== undefined))) throw new Error(`Blocked control needs only an unresolved reason: ${control.id}`)
   if (!outcome || typeof outcome !== 'object' || Array.isArray(outcome)) throw new Error(`Record a verified outcome or unresolved reason: ${control.id}`)
   if (outcome.reason !== undefined && (typeof outcome.reason !== 'string' || !outcome.reason.trim() || outcome.to || outcome.action || outcome.targetState || outcome.fallbackTo)) throw new Error(`Reason cannot also declare navigation: ${control.id}`)
   if (!outcome.reason && outcome.action !== 'back' && !(typeof outcome.to === 'string' && outcome.to.trim())) throw new Error(`Record a destination, Back, or reason: ${control.id}`)

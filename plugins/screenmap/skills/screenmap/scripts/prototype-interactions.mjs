@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { validatePrototype, summarizeInteractions, sameInteractionControl } from './prototype-capture.mjs'
+import { validatePrototype, summarizeInteractions, sameInteractionControl, interactionBlockReason } from './prototype-capture.mjs'
 
 const kinds = new Set(['back', 'close', 'menu', 'navigate', 'dismiss', 'other'])
 const frameValid = (rect) => Array.isArray(rect) && rect.length === 4 && rect.every(Number.isFinite) && rect[0] >= 0 && rect[1] >= 0 && rect[2] > 0 && rect[3] > 0 && rect[0] + rect[2] <= 1 && rect[1] + rect[3] <= 1
@@ -30,11 +30,14 @@ export function attachInteractions(nodes, axes, records, screensByAxis) {
           const ids = new Set()
           for (const control of entry.controls) {
             const item = { id: typeof control?.id === 'string' ? control.id : '', label: typeof control?.label === 'string' ? control.label : '', rect: frameValid(control?.rect) ? control.rect : null, kind: kinds.has(control?.kind) ? control.kind : 'other', status: 'unresolved' }
+            for (const key of ['disabled', 'destructive']) if (control?.[key] !== undefined) item[key] = control[key]
             let reason = typeof control?.id !== 'string' || !control.id.trim() || ids.has(control.id) ? 'invalid-control-id' : typeof control.label !== 'string' || !control.label.trim() ? 'missing-label' : !frameValid(control.rect) ? 'invalid-frame' : !kinds.has(control.kind) ? 'unknown-kind' : null
             ids.add(control?.id)
             if (!reason) {
               const outcome = control.outcome
-              if (typeof outcome?.reason === 'string' && outcome.reason.trim()) reason = outcome.reason
+              const blocked = interactionBlockReason(control)
+              if (blocked) reason = typeof outcome?.reason === 'string' && outcome.reason.trim() ? outcome.reason : blocked
+              else if (typeof outcome?.reason === 'string' && outcome.reason.trim()) reason = outcome.reason
               else if (!outcome || typeof outcome !== 'object') reason = 'unobserved-outcome'
               else {
                 const candidate = { label: control.label, rect: control.rect, ...(control.kind === 'close' && outcome.action === 'back' ? { scope: 'screen' } : {}), ...Object.fromEntries(['action', 'to', 'targetState', 'fallbackTo'].filter((key) => outcome[key] !== undefined).map((key) => [key, outcome[key]])) }
@@ -54,6 +57,7 @@ export function attachInteractions(nodes, axes, records, screensByAxis) {
             if (reason) { item.reason = reason; report.status = 'partial' }
             report.controls.push(item)
           }
+          if (state.prototype) state.prototype.links = state.prototype.links.filter((link) => !report.controls.some((control) => control.rect && interactionBlockReason(control) && sameInteractionControl(link, control)))
         }
         state.interactions = report
       }

@@ -1,6 +1,6 @@
 import { unzipSync } from 'fflate'
 import { parse as parseYaml } from 'yaml'
-import { validatePrototype, summarizeInteractions, sameInteractionControl } from '../../../../plugins/screenmap/skills/screenmap/scripts/prototype-capture.mjs'
+import { validatePrototype, summarizeInteractions, sameInteractionControl, interactionBlockReason } from '../../../../plugins/screenmap/skills/screenmap/scripts/prototype-capture.mjs'
 
 async function validateCaptures(map, manifest, files, prefix = '') {
   const hash = async (name) => {
@@ -24,11 +24,14 @@ async function validateCaptures(map, manifest, files, prefix = '') {
             const reason = report.status === 'missing' ? (typeof report.reason === 'string' ? report.reason : 'missing-inventory') : !sha || report.sourceSha256 !== sha ? 'stale-inventory' : !['complete', 'partial'].includes(report.status) || !Array.isArray(report.controls) ? 'invalid-inventory' : null
             const controls = (Array.isArray(report.controls) ? report.controls : []).map((control) => {
               const item = { id: typeof control?.id === 'string' ? control.id : '', label: typeof control?.label === 'string' ? control.label : '', kind: typeof control?.kind === 'string' ? control.kind : 'other', rect: Array.isArray(control?.rect) && control.rect.length === 4 && control.rect.every(Number.isFinite) && control.rect[0] >= 0 && control.rect[1] >= 0 && control.rect[2] > 0 && control.rect[3] > 0 && control.rect[0] + control.rect[2] <= 1 && control.rect[1] + control.rect[3] <= 1 ? control.rect : null, status: 'unresolved' }
-              const linked = !reason && control?.status === 'linked' && item.rect && (valid?.links ?? []).some((link) => sameInteractionControl(link, item))
+              for (const key of ['disabled', 'destructive']) if (control?.[key] !== undefined) item[key] = control[key]
+              const blocked = interactionBlockReason(control)
+              const linked = !reason && !blocked && control?.status === 'linked' && item.rect && (valid?.links ?? []).some((link) => sameInteractionControl(link, item))
               if (linked) item.status = 'linked'
-              else item.reason = reason ?? (typeof control?.reason === 'string' ? control.reason : 'missing-hotspot')
+              else item.reason = reason ?? (typeof control?.reason === 'string' ? control.reason : blocked ?? 'missing-hotspot')
               return item
             })
+            if (state.prototype) state.prototype.links = state.prototype.links.filter((link) => !controls.some((control) => control.rect && interactionBlockReason(control) && sameInteractionControl(link, control)))
             state.interactions = { sourceSha256: report.sourceSha256 ?? null, status: reason || report.status === 'missing' ? 'missing' : controls.some((control) => control.status !== 'linked') ? 'partial' : 'complete', controls, ...(reason || report.reason ? { reason: reason ?? String(report.reason) } : {}) }
           }
         }))

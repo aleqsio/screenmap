@@ -46,3 +46,8 @@ export const sameInteractionControl = (a, b) => {
   const first = a.rect[2] * a.rect[3], second = b.rect[2] * b.rect[3]
   return intersection / (first + second - intersection) >= 0.5 || (a.label === b.label && intersection / Math.min(first, second) >= 0.8 && Math.max(first, second) / Math.min(first, second) <= 4)
 }
+
+export function interactionBlockReason(control) {
+  if (['disabled', 'destructive'].some((key) => control?.[key] !== undefined && typeof control[key] !== 'boolean')) return 'invalid-safety-flag'
+  return control?.destructive ? 'destructive-control' : control?.disabled ? 'disabled-control' : null
+}
