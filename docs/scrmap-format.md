@@ -126,6 +126,12 @@ Optional `.screenmap/out/hotspots.json` binds clickable areas to exact captures:
 on a capture entry to bind it to `slug--state.png`; omit it for the base.
 An optional `targetState` opens a named state on the destination. Use
 `{"label":"Back","action":"back","rect":[...]}` for a Back hotspot.
+Add `"fallbackTo":"Home"` to use that captured node when the prototype has no
+previous visit, such as a directly opened modal. The fallback replaces the
+current visit; it does not add another history entry. Without a fallback, a
+Back hotspot is disabled when there is no previous visit. `fallbackTo` is
+valid only for Back hotspots and must name a node with a base screenshot
+in the same variant or platform.
 `scroll.next` and `scroll.previous` name other captured positions on the same
 screen; `$base` names the base capture. For a tall screenshot, `viewport`
 sets the phone frame's positive width and height in the same units, so the

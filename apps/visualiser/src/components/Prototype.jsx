@@ -83,7 +83,7 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
       <main className="mx-auto flex max-w-6xl flex-wrap items-start justify-center gap-6 px-4 pb-6 pt-36">
         <section className="flex min-w-0 flex-1 flex-col items-center gap-3">
           <div className="flex w-full max-w-md items-center gap-2">
-            <Button variant="outline" size="sm" onClick={back} disabled={!canBack}><ArrowLeft /> Back</Button>
+            <Button variant="outline" size="sm" onClick={() => back()} disabled={!canBack}><ArrowLeft /> Back</Button>
             <Button variant="outline" size="sm" onClick={() => { if (start) visit(start) }} disabled={!start}><RotateCcw /> Start</Button>
             <strong className="min-w-0 truncate text-sm">{current ? nodeLabel(current) : 'No screens'}</strong>
           </div>
@@ -98,7 +98,7 @@ export default function Prototype({ bundle, mode, setMode, hasChanges, overlaid,
               <img src={img} alt={`Capture: ${nodeLabel(current)}`} className="block h-auto w-full" />
               {links.map((link, i) => {
                 const [x, y, w, h] = link.rect
-                return <button key={`${link.to}-${i}`} type="button" disabled={link.action === 'back' && !canBack} aria-label={link.label} title={link.label} onClick={() => link.action === 'back' ? back() : navigate(link.to, link.targetState ?? null)} className={`absolute rounded border-2 disabled:opacity-30 hover:border-primary/60 hover:bg-primary/25 focus-visible:border-primary/60 focus-visible:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${hoverOnly ? 'border-transparent bg-transparent' : 'border-primary/60 bg-primary/10'}`} style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
+                return <button key={`${link.to}-${i}`} type="button" disabled={link.action === 'back' && !canBack && !link.fallbackTo} aria-label={link.label} title={link.label} onClick={() => link.action === 'back' ? back(link.fallbackTo) : navigate(link.to, link.targetState ?? null)} className={`absolute rounded border-2 disabled:opacity-30 hover:border-primary/60 hover:bg-primary/25 focus-visible:border-primary/60 focus-visible:bg-primary/10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${hoverOnly ? 'border-transparent bg-transparent' : 'border-primary/60 bg-primary/10'}`} style={{ left: `${x * 100}%`, top: `${y * 100}%`, width: `${w * 100}%`, height: `${h * 100}%` }} />
               })}
               </div>
             </div>

@@ -42,7 +42,7 @@ export function useBundles() {
   const visit = useCallback((value, captureState = null) => navigation.visit(value, captureState), [navigation])
   const setState = useCallback((value) => navigation.visit(screen, value), [navigation, screen])
   const setHighlights = useCallback((value) => { if (value) navigation.change({ highlights: value === 'hover' ? 'hover' : null }) }, [navigation])
-  const back = useCallback(() => navigation.back(), [navigation])
+  const back = useCallback((fallbackTo) => navigation.back(fallbackTo), [navigation])
   useEffect(() => { const modeParam = new URLSearchParams(window.location.search).get('mode'); if (modeParam && !['map', 'changes', 'prototype'].includes(modeParam)) navigation.change({ mode: 'map' }, { replace: true }) }, [navigation])
 
   const place = useCallback((loaded) => {

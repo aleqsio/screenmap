@@ -28,7 +28,11 @@ export function createNavigation(window) {
     subscribe(listener) { if (!listeners.size) window.addEventListener('popstate', onPop); listeners.add(listener); return () => { listeners.delete(listener); if (!listeners.size) window.removeEventListener('popstate', onPop) } },
     change,
     visit(screen, state = null) { change({ screen, state }, { visit: true }) },
-    back() { const info = window.history.state?.screenmap; if (info?.token === token && info.backSteps > 0) window.history.go(-info.backSteps) },
+    back(fallbackTo) {
+      const info = window.history.state?.screenmap
+      if (info?.token === token && info.backSteps > 0) window.history.go(-info.backSteps)
+      else if (typeof fallbackTo === 'string' && fallbackTo) change({ screen: fallbackTo, state: null }, { replace: true })
+    },
     reset() { token = `${Date.now()}-${Math.random()}`; change({ screen: null, state: null }, { replace: true }) },
   }
 }

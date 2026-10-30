@@ -10,8 +10,8 @@ export function validatePrototype(prototype, sourceSha256, nodes, axis, sourceId
     if (typeof link?.label !== 'string' || !link.label.trim() || !Array.isArray(link.rect) || link.rect.length !== 4 || !link.rect.every(Number.isFinite)) return false
     const [x, y, w, h] = link.rect
     if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > 1 || y + h > 1) return false
-    if (link.action === 'back') return !link.to && !link.targetState
-    return !link.action && typeof link.to === 'string' && (!link.targetState || typeof link.targetState === 'string') && exists(link.to, link.targetState)
+    if (link.action === 'back') return !link.to && !link.targetState && (link.fallbackTo === undefined || (typeof link.fallbackTo === 'string' && exists(link.fallbackTo)))
+    return !link.action && link.fallbackTo === undefined && typeof link.to === 'string' && (!link.targetState || typeof link.targetState === 'string') && exists(link.to, link.targetState)
   })
   const scroll = {}
   for (const direction of ['next', 'previous']) {
