@@ -46,6 +46,8 @@ test('availability counts actual saved base/state images and compatible choices 
   assert.equal(compatibleCaptureCount(availability, selectionOf(profiles[0]), 'appearance', 'dark'), 1)
   assert.equal(compatibleCaptureCount(availability, selectionOf(profiles[1]), 'language', 'ar'), 0)
   assert.equal(captureAvailability(bundle, profiles, 'missing')[1].currentAvailable, false)
+  assert.equal(captureAvailability(bundle, profiles, null)[0].currentAvailable, true)
+  assert.equal(captureAvailability(bundle, profiles, null)[2].currentAvailable, false)
   const missingArabicLight = availabilityCombinations(availability).find((profile) => profile.language === 'ar' && profile.appearance === 'light')
   assert.equal(missingArabicLight.unconfigured, true)
   assert.equal(missingArabicLight.baseCount, 0)

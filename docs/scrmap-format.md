@@ -332,3 +332,19 @@ whether the current Visit is captured. Selecting a row applies its complete
 combination in one URL history entry. Configured combinations with no image and absent language/appearance combinations
 stay visible as **Not captured** with zero counts. These statuses describe the loaded bundle, not a
 live capture process or runtime connection.
+
+## Gallery review
+
+**Gallery** cycles through every actual saved base screenshot and named Capture
+State for the exact selected capture combination, including error/auth captures.
+Routes follow map order; Base precedes named states in name order. Missing images
+are skipped; images from another combination are never substituted. The counter
+shows the current capture and total. Previous/Next and Left/Right keys wrap after
+the last capture; keyboard browsing yields to input and select controls.
+
+Play/Pause controls automatic rotation with visible 2s, 5s and 10s choices.
+`mode=gallery`, `screen`, `state` and `speed` persist in the URL with capture axes
+and existing parameters. Playback starts paused on reload/shared links and stops
+on manual navigation, capture changes, mode changes, browser navigation or a
+hidden tab. Gallery shows saved images without executable prototype hotspots.
+The optional viewer needs no connection to an app or capture device.

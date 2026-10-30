@@ -504,7 +504,7 @@ export default function Graph({ bundle, mode, setMode, hasChanges, overlaid, pla
         />}
       </ReactFlow>
 
-      {!SHOT && <TopBar availability={availability} profiles={profiles} selection={selection} setCaptureAxis={setCaptureAxis}
+      {!SHOT && <TopBar screen={screen} availability={availability} profiles={profiles} selection={selection} setCaptureAxis={setCaptureAxis}
         manifest={manifest}
         mode={mode}
         setMode={setMode}

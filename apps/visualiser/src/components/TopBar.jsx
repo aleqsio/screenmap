@@ -1,4 +1,4 @@
-import { Moon, Sun, Monitor, Upload, X, Map as MapIcon, GitCompareArrows, MousePointer2 } from 'lucide-react'
+import { Moon, Sun, Monitor, Upload, X, Map as MapIcon, GitCompareArrows, MousePointer2, Images } from 'lucide-react'
 import { useTheme } from '@/lib/theme'
 import { Button } from '@/components/ui/button'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
@@ -46,7 +46,7 @@ function ThemeMenu() {
 
 const PLATFORM_LABEL = { ios: 'iOS', android: 'Android' }
 
-export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, stats, diffStats, platforms = [], platform, setPlatform, variants = [], variant, setVariant, onOpenBuffer, onCloseChanges, profiles, selection, setCaptureAxis, availability, inFlow = false }) {
+export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, stats, diffStats, platforms = [], platform, setPlatform, variants = [], variant, setVariant, onOpenBuffer, onCloseChanges, profiles, selection, setCaptureAxis, availability, screen, inFlow = false }) {
   const diffMode = mode === 'changes'
   // The switcher only earns its space when there is something to switch to; a
   // single-platform map keeps the bar it always had.
@@ -91,6 +91,7 @@ export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, 
           <ToggleGroupItem value="prototype" aria-label="Prototype" className="data-[state=on]:bg-foreground data-[state=on]:text-background">
             <MousePointer2 data-icon="inline-start" aria-hidden="true" /> Prototype
           </ToggleGroupItem>
+          <ToggleGroupItem value="gallery" aria-label="Gallery" className="data-[state=on]:bg-foreground data-[state=on]:text-background"><Images data-icon="inline-start" aria-hidden="true" /> Gallery</ToggleGroupItem>
           <Tooltip>
             <TooltipTrigger asChild>
               <span>
@@ -159,7 +160,7 @@ export default function TopBar({ manifest, mode, setMode, hasChanges, overlaid, 
           </ToggleGroup>
         )}
 
-        {profiles && selection && <CaptureControls availability={availability} profiles={profiles} selection={selection} onChange={setCaptureAxis} />}
+        {profiles && selection && <CaptureControls hasCurrentScreen={!!screen} availability={availability} profiles={profiles} selection={selection} onChange={setCaptureAxis} />}
 
         <div className="hidden items-center gap-3 md:flex">
           {diffMode && diffStats ? (

@@ -52,7 +52,7 @@ export default function Prototype({ sourceBundle, profiles, selection, setCaptur
   if (state && !captureStates.some((item) => item.name === state)) captureStates.push({ name: state })
   return (
     <div className="relative h-full overflow-auto bg-background">
-      <TopBar availability={availability} manifest={manifest} mode={mode} setMode={setMode} hasChanges={hasChanges} overlaid={overlaid} stats={stats} platforms={comparing ? [] : platforms} platform={platform} setPlatform={setPlatform} variants={comparing ? [] : variants} variant={variant} setVariant={setVariant} profiles={comparing ? undefined : profiles} selection={selection} setCaptureAxis={setCaptureAxis} inFlow onOpenBuffer={open} onCloseChanges={closeChanges} />
+      <TopBar screen={screen} availability={availability} manifest={manifest} mode={mode} setMode={setMode} hasChanges={hasChanges} overlaid={overlaid} stats={stats} platforms={comparing ? [] : platforms} platform={platform} setPlatform={setPlatform} variants={comparing ? [] : variants} variant={variant} setVariant={setVariant} profiles={comparing ? undefined : profiles} selection={selection} setCaptureAxis={setCaptureAxis} inFlow onOpenBuffer={open} onCloseChanges={closeChanges} />
       <main className="mx-auto flex max-w-[1800px] flex-wrap items-start justify-center gap-6 px-4 pb-6 pt-6">
         <section className="flex min-w-0 flex-1 flex-col items-center gap-3">
           <div className="flex w-full max-w-md items-center gap-2">
