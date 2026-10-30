@@ -76,7 +76,7 @@ export default function Gallery(props) {
       <aside className="w-full max-w-xs rounded-lg border bg-card p-4 text-sm">
         <h2 className="font-semibold">Capture gallery</h2>
         <p className="mt-2 text-xs text-muted-foreground">All saved screens and named states for the selected combination. Autoplay starts paused and stops when the tab is hidden.</p>
-        <CaptureAvailability availability={availability} selection={selection} onSelect={(value) => { setPlaying(false); setCaptureSelection(value) }} />
+        <CaptureAvailability defaultOpen availability={availability} selection={selection} onSelect={(value) => { setPlaying(false); setCaptureSelection(value) }} />
       </aside>
     </main>
   </div>

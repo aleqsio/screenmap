@@ -1,13 +1,15 @@
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { selectionOf, resolveProfile, availabilityCombinations } from '../lib/captureSelection'
 
 const labels = { ios: 'iOS', android: 'Android', en: 'English', ar: 'Arabic', light: 'Light', dark: 'Dark', system: 'System' }
 
-export default function CaptureAvailability({ availability, selection, onSelect, hasCurrentScreen = true, compact = false }) {
+export default function CaptureAvailability({ availability, selection, onSelect, hasCurrentScreen = true, compact = false, defaultOpen = false }) {
+  const [expanded, setExpanded] = useState(defaultOpen)
   const selected = resolveProfile(availability, selection)
   const rows = availabilityCombinations(availability)
   const groups = [...new Map(rows.map((profile) => [JSON.stringify([profile.platform, profile.osVersion]), { platform: profile.platform, osVersion: profile.osVersion }])).entries()]
-  return <details className={compact ? 'w-full text-xs' : 'mt-4 border-t pt-4 text-sm'}>
+  return <details open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)} className={compact ? 'w-full text-xs' : 'mt-4 border-t pt-4 text-sm'}>
     <summary className="cursor-pointer font-semibold">Available captures · {selected?.currentAvailable ? 'Captured' : 'Not captured'}</summary>
     <p className="mt-2 text-xs text-muted-foreground">{hasCurrentScreen ? 'Status is for the current screen and state.' : 'Status is for all saved images in this bundle.'} Counts show saved base screens and named states. Missing combinations have zero images.</p>
     <div className="mt-2 max-h-72 space-y-3 overflow-auto">
