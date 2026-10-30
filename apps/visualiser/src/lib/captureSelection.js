@@ -21,7 +21,7 @@ export function captureAvailability(bundle, profiles, screen, state = null) {
     const node = nodes.find((item) => item.id === screen)
     const base = node?.captures ? node.captures[profile.id] : node?.capture
     const selected = state ? base?.states?.find((item) => item.name === state) : base
-    return { ...profile, baseCount, stateCount, currentAvailable: hasImage(selected) }
+    return { ...profile, baseCount, stateCount, currentAvailable: screen == null ? baseCount + stateCount > 0 : hasImage(selected) }
   })
 }
 

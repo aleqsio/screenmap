@@ -1,4 +1,4 @@
-const keys = ['mode', 'screen', 'state', 'variant', 'platform', 'highlights', 'language', 'appearance', 'osVersion', 'compare', 'panes']
+const keys = ['mode', 'screen', 'state', 'variant', 'platform', 'highlights', 'language', 'appearance', 'osVersion', 'compare', 'panes', 'speed']
 
 export function createNavigation(window) {
   const listeners = new Set()
@@ -6,7 +6,7 @@ export function createNavigation(window) {
   const read = () => {
     const params = new URLSearchParams(window.location.search)
     const values = Object.fromEntries(keys.map((key) => [key, params.get(key)]))
-    return { ...values, mode: ['map', 'changes', 'prototype'].includes(values.mode) ? values.mode : 'map', canBack: window.history.state?.screenmap?.token === token && (window.history.state.screenmap.backSteps ?? 0) > 0, canClose: window.history.state?.screenmap?.token === token && (window.history.state.screenmap.closeSteps ?? 0) > 0 }
+    return { ...values, mode: ['map', 'changes', 'prototype', 'gallery'].includes(values.mode) ? values.mode : 'map', canBack: window.history.state?.screenmap?.token === token && (window.history.state.screenmap.backSteps ?? 0) > 0, canClose: window.history.state?.screenmap?.token === token && (window.history.state.screenmap.closeSteps ?? 0) > 0 }
   }
   const notify = () => listeners.forEach((listener) => listener(read()))
   const change = (values, { replace = false, visit = false } = {}) => {
@@ -42,7 +42,7 @@ export function createNavigation(window) {
       const steps = scope === 'screen' ? info?.closeSteps : info?.backSteps
       if (info?.token === token && steps > 0) {
         const current = read()
-        pendingOptions = Object.fromEntries(['variant', 'platform', 'language', 'appearance', 'osVersion', 'compare', 'panes', 'highlights'].map((key) => [key, current[key]]))
+        pendingOptions = Object.fromEntries(['variant', 'platform', 'language', 'appearance', 'osVersion', 'compare', 'panes', 'highlights', 'speed'].map((key) => [key, current[key]]))
         window.history.go(-steps)
       }
       else if (typeof fallbackTo === 'string' && fallbackTo) change({ screen: fallbackTo, state: null }, { replace: true })

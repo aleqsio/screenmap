@@ -3,12 +3,14 @@ import { useBundles } from './lib/useBundles'
 import Landing from './components/Landing'
 import Graph from './components/Graph'
 import Prototype from './components/Prototype'
+import Gallery from './components/Gallery'
 
 export default function App() {
   const b = useBundles()
   if (!b.bundle) {
     return <Landing onOpenBuffer={b.open} onLoadDemo={b.loadDemo} demoAvailable={b.demoAvailable} busy={b.busy} error={b.error} />
   }
+  if (b.mode === 'gallery') return <Gallery {...b} />
   if (b.mode === 'prototype') return <Prototype {...b} />
   // remount on bundle load or mode switch: clean selection, fresh layout
   return (
