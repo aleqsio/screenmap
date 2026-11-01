@@ -124,6 +124,10 @@ export function runAgent({ projectDir, config, screens, scheme, runtime, udid, b
   const repoSkill = path.join(projectDir, config.skillFile)
   const repoSkillText = fs.existsSync(repoSkill) ? fs.readFileSync(repoSkill, 'utf8') : null
 
+  const interactionRoot = path.dirname(outScreensDir)
+  const interactionGraph = path.join(interactionRoot, 'graph.json')
+  fs.writeFileSync(interactionGraph, JSON.stringify({ routes: screens }))
+
   const brief = PLATFORM_BRIEF[platform] ?? PLATFORM_BRIEF.ios
   const device = deviceName ?? config.device ?? brief.device
 
@@ -143,7 +147,8 @@ Rules:
 3. Prefer the deep link first; if it shows an error/not-found, find real params (public API, other screens) and note what you used. A screen marked NO DEEP LINK has no URL at all — do NOT open ${scheme ? `\`${scheme}://\`` : 'the app root'} and screenshot whatever appears, which would file the home screen under its name. Navigate to it by tapping, and let its nav flow be its capture.
 4. Write ${notesPath}: JSON { "<routeId>": "one sentence describing what this screen shows${mode === 'pr' ? ' / what visibly changed in this PR' : ''}" } for each screen you handled${mode === 'pr' ? ', or { "note": "...", "verdict": "unaffected" } if the PR diff shows no visible change there' : ''}.
 5. Write ${summaryPath}: JSON { "captured": [routeIds], "skipped": [{ "id", "why" }], "flows": [flow names] } when done.
-6. Budget: these ${budgeted.length} screens only. Be economical — no broad exploration.${prContext ? `\n\nPR context: ${prContext}` : ''}`
+6. For every base and named capture, follow ${SKILL_DIR}/references/interactions.md: inventory visible navigation controls with actual runtime frames, including Back/Close and three-dot menus even on error screens; verify safe destinations and capture menu open/dismiss states. Finalize screenshot sizing before running ${SKILL_DIR}/scripts/record-interactions.mjs ${projectDir} --out-dir ${interactionRoot} --graph ${interactionGraph} --variant ${platform} --node <route-id> --controls <observed-controls.json>. Record specific unresolved reasons for unsafe, disabled or unavailable actions. Screenshots alone do not establish complete navigation.
+7. Budget: these ${budgeted.length} screens only. Include their safe menu/dismiss states; report budget-limited controls unresolved.${prContext ? `\n\nPR context: ${prContext}` : ''}`
 
   log(`agent (${provider.name}, ${platform}): exploring ${budgeted.length} screen(s)${skipped.length ? `, ${skipped.length} over budget` : ''}`)
   let r
