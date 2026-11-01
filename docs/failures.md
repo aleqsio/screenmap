@@ -1,0 +1,1 @@
+2026-10-31 | Gallery kept rotating after browser Back | Rendering removed the pause listener during navigation event dispatch | Keep navigation and visibility pause listeners mounted; verify browser Back during playback | apps/visualiser/src/components/Gallery.jsx

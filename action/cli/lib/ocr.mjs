@@ -65,7 +65,7 @@ export const ocrAvailable = () => ocrBackend() !== null
 // PNG dimensions from the IHDR chunk — tesseract's TSV reports pixels and says
 // nothing about the page size, and this beats shelling out to `sips`/`identify`
 // for a value that sits in the first 24 bytes of the file.
-function pngSize(file) {
+export function pngSize(file) {
   const fd = fs.openSync(file, 'r')
   try {
     const b = Buffer.alloc(24)
