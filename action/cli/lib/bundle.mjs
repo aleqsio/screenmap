@@ -4,7 +4,9 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { attachPrototype } from '../../../plugins/screenmap/skills/screenmap/scripts/prototype-producer.mjs'
 import { readJson, writeJson, ensureDir, log } from './util.mjs'
+import { pngSize } from './ocr.mjs'
 
 export const SKILL_SCRIPTS = path.resolve(new URL('../../../plugins/screenmap/skills/screenmap/scripts', import.meta.url).pathname)
 
@@ -19,7 +21,9 @@ export function readBaseline(bundlePath, workDir) {
   const manifest = readJson(path.join(dir, 'manifest.json'))
   const map = readJson(path.join(dir, 'map.json'))
   const graph = fs.existsSync(path.join(dir, 'graph.json')) ? readJson(path.join(dir, 'graph.json')) : graphFromMap(manifest, map)
-  return { dir, manifest, map, graph, screensDir: path.join(dir, 'screens'), flowsDir: path.join(dir, 'flows') }
+  const recorded = readJson(path.join(dir, 'interactions.json'), {})
+  const interactions = recorded.version === 1 && Array.isArray(recorded.captures) ? recorded.captures : []
+  return { dir, manifest, map, graph, interactions, screensDir: path.join(dir, 'screens'), flowsDir: path.join(dir, 'flows') }
 }
 
 // map.json (viewer shape) → graph.json (producer shape) so older baselines
@@ -134,7 +138,7 @@ function captureFor(r, cs, shotFiles, prefix) {
 // move into `screens/<platform>/` and each node gains a `captures` map; `capture`
 // keeps mirroring the FIRST platform so a v2 viewer still renders the map
 // instead of showing every screen as missing.
-export function packBaseline({ graph, platforms, screensDir, flowsDir, captureStatus = {}, appName, device, commit, ref, out }) {
+export function packBaseline({ graph, platforms, screensDir, flowsDir, captureStatus = {}, hotspots = [], interactions, appName, device, commit, ref, out }) {
   // legacy single-platform call shape
   if (!platforms) platforms = [{ platform: 'ios', device, screensDir }]
   const multi = platforms.length > 1
@@ -159,7 +163,12 @@ export function packBaseline({ graph, platforms, screensDir, flowsDir, captureSt
       ...(multi ? { captures: per } : {}),
     }
   })
-  const map = { nodes, edges: graph.edges ?? [], flows: [] }
+  if (!interactions) {
+    const data = flowsDir ? readJson(path.join(flowsDir, '..', 'interactions.json'), {}) : {}
+    interactions = data.version === 1 && Array.isArray(data.captures) ? data.captures : []
+  }
+  const interactionCoverage = attachPrototype(nodes, sides.map((s) => s.platform), hotspots, Object.fromEntries(sides.map((s) => [s.platform, s.screensDir])), interactions)
+  const map = { nodes, edges: graph.edges ?? [], flows: [], interactionCoverage }
   const manifest = {
     formatVersion: multi ? 3 : 2, flowFormat: 'argent', generator: 'screenmap-ci/0.1',
     app: {
@@ -178,6 +187,8 @@ export function packBaseline({ graph, platforms, screensDir, flowsDir, captureSt
     writeJson(path.join(stage, 'map.json'), map)
     writeJson(path.join(stage, 'graph.json'), graph)
     writeJson(path.join(stage, 'capture-status.json'), captureStatus)
+    writeJson(path.join(stage, 'interactions.json'), { version: 1, captures: interactions })
+    writeJson(path.join(stage, 'interaction-coverage.json'), interactionCoverage)
     ensureDir(path.join(stage, 'screens')); ensureDir(path.join(stage, 'flows'))
     for (const s of sides) {
       const dest = ensureDir(path.join(stage, 'screens', ...(multi ? [s.platform] : [])))
@@ -185,7 +196,7 @@ export function packBaseline({ graph, platforms, screensDir, flowsDir, captureSt
     }
     for (const f of flowFiles) fs.copyFileSync(path.join(flowsDir, f), path.join(stage, 'flows', f))
     fs.rmSync(out, { force: true })
-    execFileSync('zip', ['-r', '-q', out, 'manifest.json', 'map.json', 'graph.json', 'capture-status.json', 'screens', 'flows'], { cwd: stage })
+    execFileSync('zip', ['-r', '-q', out, 'manifest.json', 'map.json', 'graph.json', 'capture-status.json', 'interactions.json', 'interaction-coverage.json', 'screens', 'flows'], { cwd: stage })
   } finally { fs.rmSync(stage, { recursive: true, force: true }) }
   log(`packed ${out}: ${nodes.length} nodes, ${shotCount} shots across ${sides.map((s) => s.platform).join('+')}, ${flowFiles.length / 2 | 0} flows`)
   return { manifest, map }
@@ -217,6 +228,10 @@ export function downscaleAll(dir) {
   for (const f of fs.readdirSync(dir)) {
     const p = path.join(dir, f)
     if (fs.statSync(p).isDirectory()) { downscaleAll(p); continue } // per-platform subdirs
-    if (/\.png$/i.test(f)) { try { execFileSync(r.bin, r.args(p), { stdio: 'ignore' }) } catch {} }
+    if (/\.png$/i.test(f)) {
+      const size = pngSize(p)
+      if (size && size.w <= 800 && size.h <= 800) continue
+      try { execFileSync(r.bin, r.args(p), { stdio: 'ignore' }) } catch {}
+    }
   }
 }

@@ -18,6 +18,8 @@ All three read and write the same `.scrmap` bundle, so a map recorded locally wo
 
 **Want to see it first?** Open [app.screenmap.dev/?template=bluesky](https://app.screenmap.dev/?template=bluesky) for a full map of the Bluesky client: 70 screens, 126 recorded flows, captured in one run.
 
+A first local map also records visible navigation controls for Prototype mode: Back/Close, tabs, three-dot menus and their captured dismissal states. Packing creates hotspots from the observed interaction inventory in each language. The viewer reports missing or unresolved controls, so a screenshot-only map cannot be mistaken for complete navigation. See the [interaction capture workflow](plugins/screenmap/skills/screenmap/references/interactions.md).
+
 ## Words used in these docs
 
 - **Map** (`.scrmap`) is one bundle holding every screen of the app: screenshots, routes, the edges between screens, and the recorded flows. It is a zip, and the viewer opens it.
@@ -303,6 +305,8 @@ What you get:
 - **The path to every screen, saved.** Each screen carries the exact tap sequence that reaches it, ready to replay headlessly. Commit those flows and CI replays them instead of paying an agent to rediscover them.
 
 Output lands in `<project>/.screenmap/out/`, so add that to your `.gitignore`. You need a macOS host with the iOS simulator, or an Android emulator (`--platform android`); `--platform both` captures each screen on both and puts them in one map behind a platform switcher.
+
+To capture the same screens under different app settings (say English light and Arabic dark), list `variants` in `.screenmap/config.json`, each with an `id`, a `label` and a `setup` deep link that applies the setting. The plugin sweeps every variant in turn and packs them with `--variants`, and the viewer gets a variant switcher. Variants work with one platform at a time; CI support is not wired up yet.
 
 ## NativeScript apps
 
