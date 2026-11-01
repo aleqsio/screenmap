@@ -189,6 +189,16 @@ Capturing both platforms: downscale each `screens/<platform>/` directory, then p
 
 The `.scrmap` bundle (zip: manifest.json + map.json + screens/) is the primary deliverable — see `docs/scrmap-format.md` in the skill repo. Open it in the **map viewer** (`apps/visualiser` in the skill repo, `npm run dev`, drag the bundle in): interactive graph, flow playback, click-to-copy replay commands. Send the bundle with SendUserFile; send `map.html` too as the no-tooling fallback (display: render). Report: routes captured / total, state variants captured, anything skipped (error screens, auth redirects, un-triggerable sheets), unresolved edges. Offer to publish as an Artifact (if so, load the artifact-design skill first and rebuild the page body-only per Artifact rules — don't publish the full-document HTML as-is). Suggest adding `.screenmap/out/` to `.gitignore`.
 
+## Variants
+
+Use this when the same screens must be captured under different app settings, such as language and theme. Declare them in `.screenmap/config.json`:
+
+```json
+{ "variants": [{ "id": "ar-dark", "label": "Arabic · dark", "setup": "myapp://dev/display?theme=dark&locale=ar" }] }
+```
+
+For each variant, in turn: open its `setup` URL, wait for the app to apply it, then run the full sweep (Phases 4–5) into `.screenmap/out/screens/<variant>/`. Run variants one after another, never interleaved, so one setting is never half applied to another variant's captures. Keep `capture-status.json` keyed by variant id. Pack with `node <this skill's dir>/scripts/pack-map.mjs <project> --variants en-light,ar-dark`. Variants work with one platform only; the packer exits with an error if `--platforms` lists more than one. The viewer then shows a variant switcher.
+
 ## Replay mode — `/screenmap replay <flow-name>`
 
 Flows are argent YAML, so the primary replay is **headless**:
