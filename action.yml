@@ -64,7 +64,7 @@ inputs:
     description: Orphan branch that stores baseline maps and per-PR change bundles
     default: screenmaps
   publish:
-    description: "Publish bundles to the screenmaps branch so the comment can deep-link the hosted map viewer (requires contents: write). Set false for private repos if you only want the artifact."
+    description: "Publish bundles to the screenmaps branch so the comment can show the screenshots and deep-link the hosted map viewer (requires contents: write). On a private repo the comment shows the screenshots but links the artifact instead of the viewer."
     default: "true"
   viewer_url:
     description: Hosted map viewer origin used in comment links
@@ -544,7 +544,9 @@ runs:
         MAP_URL: ${{ steps.publish.outputs.map_url }}
         CHANGES_URL: ${{ steps.publish.outputs.changes_url }}
         SHOTS_BASE: ${{ steps.publish.outputs.shots_base }}
+        PRIVATE: ${{ github.event.repository.private }}
       run: |
+        if [ "$PRIVATE" = "true" ]; then MAP_URL=; CHANGES_URL=; fi
         artifact_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}#artifacts"
         screenmap-ci comment --summary .screenmap-ci/summary.json --post --repo "${{ github.repository }}" --pr "${{ github.event.pull_request.number }}" \
           --viewer "${{ inputs.viewer_url }}" --artifact-url "$artifact_url" \

@@ -550,6 +550,7 @@ function renderComment(s, { mapUrl, changesUrl, artifactUrl, shotUrl, shotsBase,
   }
 
   if (link) lines.push(`**[Open screenmap viewer for this PR →](${link})**`, '')
+  else if (artifactUrl) lines.push(`**[Download the bundle](${artifactUrl})** and drop it into [the screenmap viewer](${viewer}) to explore this PR.`, '')
 
   const pairs = entries.filter((e) => e.status === 'M' && url(s.shots?.[e.id]?.base) && e.cap && url(e.cap.rel))
     .map((e) => {
