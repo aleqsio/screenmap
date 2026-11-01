@@ -20,6 +20,9 @@ export default function App() {
         platforms={b.platforms}
         platform={b.platform}
         setPlatform={b.setPlatform}
+        variants={b.variants}
+        variant={b.variant}
+        setVariant={b.setVariant}
         onOpenBuffer={b.open}
         onCloseChanges={b.closeChanges}
       />

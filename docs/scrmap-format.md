@@ -70,6 +70,40 @@ crashes on Android is one node with two verdicts, not two maps to compare by eye
 `capture-status.json` is keyed by platform first in a v3 bundle
 (`{"android": {"<routeId>": {…}}}`) and by route id in a v2 one.
 
+## Variants
+
+A bundle can hold the same screens captured under several app settings (language,
+theme, feature flags), for one platform. Each variant is a full sweep. It is
+`formatVersion: 3`, like the platform axis, and the two do not combine: a bundle
+has platforms or variants, not both.
+
+```
+├── manifest.json              # `variants` lists them, in capture order
+├── map.json                   # each node gains `captures`, keyed by variant id
+└── screens/
+    ├── en-light/*.png
+    └── ar-dark/*.png
+```
+
+```jsonc
+"variants": [
+  { "id": "en-light", "label": "en-light" },
+  { "id": "ar-dark",  "label": "Arabic · dark" }
+]
+```
+
+```jsonc
+"captures": {                        // same shape as `capture`, one per variant
+  "en-light": { "status": "ok", "screenshot": "screens/en-light/Profile.png", "states": [...] },
+  "ar-dark":  { "status": "ok", "screenshot": "screens/ar-dark/Profile.png", "states": [] }
+}
+```
+
+`capture` mirrors the first variant, so a reader that does not know variants shows
+the first one. `capture-status.json` is keyed by variant id first
+(`{"ar-dark": {"<routeId>": {…}}}`). Pack with
+`pack-map.mjs <project> --variants en-light,ar-dark`.
+
 ## manifest.json
 
 ```jsonc

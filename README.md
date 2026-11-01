@@ -304,6 +304,8 @@ What you get:
 
 Output lands in `<project>/.screenmap/out/`, so add that to your `.gitignore`. You need a macOS host with the iOS simulator, or an Android emulator (`--platform android`); `--platform both` captures each screen on both and puts them in one map behind a platform switcher.
 
+To capture the same screens under different app settings (say English light and Arabic dark), list `variants` in `.screenmap/config.json`, each with an `id`, a `label` and a `setup` deep link that applies the setting. The plugin sweeps every variant in turn and packs them with `--variants`, and the viewer gets a variant switcher. Variants work with one platform at a time; CI support is not wired up yet.
+
 ## NativeScript apps
 
 The same pipeline reads a [NativeScript](https://nativescript.org) app, with three differences that follow from how NativeScript apps are built.

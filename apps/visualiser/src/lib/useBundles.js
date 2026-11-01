@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { loadBundle, mergeBundles, sameApp, platformsOf, withPlatform } from './loadBundle'
+import { loadBundle, mergeBundles, sameApp, platformsOf, withPlatform, variantsOf, withVariant } from './loadBundle'
 
 // A viewer session holds up to two bundles: the Map (a plain .scrmap) and the
 // Changes overlay (a .diff.scrmap). When both describe the same app, Changes
@@ -32,6 +32,7 @@ export function useBundles() {
   const [demoAvailable, setDemoAvailable] = useState(false)
   const [gen, setGen] = useState(0)
   const [platform, setPlatform] = useState(null) // null = whichever the bundle lists first
+  const [variant, setVariant] = useState(null) // likewise
 
   const place = useCallback((loaded) => {
     if (loaded.diff) {
@@ -161,8 +162,13 @@ export function useBundles() {
     () => (platforms.some((p) => p.platform === platform) ? platform : platforms[0]?.platform ?? null),
     [platforms, platform]
   )
-  const plainP = useMemo(() => withPlatform(plain, activePlatform), [plain, activePlatform])
-  const changesP = useMemo(() => withPlatform(changes, activePlatform), [changes, activePlatform])
+  const variants = useMemo(() => variantsOf(plain ?? changes), [plain, changes])
+  const activeVariant = useMemo(
+    () => (variants.some((v) => v.id === variant) ? variant : variants[0]?.id ?? null),
+    [variants, variant]
+  )
+  const plainP = useMemo(() => withVariant(withPlatform(plain, activePlatform), activeVariant), [plain, activePlatform, activeVariant])
+  const changesP = useMemo(() => withVariant(withPlatform(changes, activePlatform), activeVariant), [changes, activePlatform, activeVariant])
 
   // Is there a map to lay the overlay over? Only then does the Changes view get
   // the map's captures behind it; without one it still resolves what it can
@@ -188,6 +194,7 @@ export function useBundles() {
     plain, changes, bundle, mode, setMode,
     hasChanges: !!changes, overlaid,
     platforms, platform: activePlatform, setPlatform,
+    variants, variant: activeVariant, setVariant,
     open, closeChanges, loadDemo, busy, error, demoAvailable, gen,
   }
 }
