@@ -18,6 +18,7 @@
 import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { attachPrototype } from './prototype-producer.mjs'
 
 const [cmd, dirArg, ...rest] = process.argv.slice(2)
 const opts = {}
@@ -344,7 +345,12 @@ const sideMap = (graph, side) => {
       ...(multi ? { captures: per } : {}),
     }
   })
-  return { nodes, edges: graph.edges ?? [], flows: [] }
+  const observed = readJson(path.join(diffDir, side, 'interactions.json'), {})
+  const authored = readJson(path.join(diffDir, side, 'hotspots.json'), {})
+  const interactions = observed.version === 1 && Array.isArray(observed.captures) ? observed.captures : []
+  const hotspots = authored.version === 1 && Array.isArray(authored.captures) ? authored.captures : []
+  const interactionCoverage = attachPrototype(nodes, platforms, hotspots, Object.fromEntries(platforms.map((pf) => [pf, shotDir(side, pf)])), interactions)
+  return { nodes, edges: graph.edges ?? [], flows: [], interactionCoverage }
 }
 
 const appName = path.basename(headGraph.projectRoot ?? '.')
@@ -380,7 +386,13 @@ try {
   fs.writeFileSync(path.join(stage, 'diff.json'), JSON.stringify(diff, null, 2))
   for (const [side, graph] of [['base', baseGraph], ['head', headGraph]]) {
     fs.mkdirSync(path.join(stage, side, 'screens'), { recursive: true })
-    fs.writeFileSync(path.join(stage, side, 'map.json'), JSON.stringify(sideMap(graph, side), null, 2))
+    const packedSide = sideMap(graph, side)
+    fs.writeFileSync(path.join(stage, side, 'map.json'), JSON.stringify(packedSide, null, 2))
+    fs.writeFileSync(path.join(stage, side, 'interaction-coverage.json'), JSON.stringify(packedSide.interactionCoverage, null, 2))
+    for (const file of ['interactions.json', 'hotspots.json']) {
+      const source = path.join(diffDir, side, file)
+      if (fs.existsSync(source)) fs.copyFileSync(source, path.join(stage, side, file))
+    }
     for (const pf of platforms) {
       const dest = path.join(stage, side, 'screens', ...(multi ? [pf] : []))
       fs.mkdirSync(dest, { recursive: true })

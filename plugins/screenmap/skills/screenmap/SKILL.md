@@ -1,11 +1,13 @@
 ---
 name: screenmap
-description: Generate a visual navigation map of an Expo / React Native or NativeScript app. Statically parses routes and links (expo-router, react-navigation, NativeScript Angular Router or Core XML pages, or your own parser) for full coverage, then deep-links through every screen in the iOS simulator or Android emulator capturing screenshots — including runtime states like bottom sheet snap points and modals — and renders a self-contained HTML map. Both platforms can go into one map with a platform switcher. Also diffs two revisions into a PR preview (.diff.scrmap) showing which screens/edges were added, removed, or changed. Use when the user asks to map an Expo/React Native/NativeScript app's navigation, screens, or routes, wants a visual sitemap of their app, or wants to preview/review what a PR changes on-screen.
+description: Generate a visual navigation map and captured interactive prototype of an Expo / React Native or NativeScript app. On the first map, inventory visible controls in every capture and language, verify Back/Close destinations, capture three-dot menus, sheets and their dismissal states, and record interactions.json so packing creates hotspots automatically. Mark destructive and disabled controls with explicit safety flags and unresolved reasons. Report missing inventories and unresolved controls; route screenshots alone are not complete navigation. Statically parses expo-router, react-navigation, NativeScript or custom routes, captures iOS/Android variants, and diffs revisions into PR previews. Use for navigation maps, interactive screen prototypes, visual sitemaps or on-screen PR review.
 ---
 
 # screenmap
 
 Produce a visual map of an Expo / React Native or NativeScript app's navigation: every route as a card with a screenshot, runtime state variants (bottom sheets at each snap point, modals), and navigation edges between screens.
+
+**First-map interaction contract:** read [Capture interactions](references/interactions.md) before the route sweep. Inventory every captured base/state/variant, including Back, Close, tabs and three-dot menus on empty/error screens. Verify destinations and menu dismissal live; record them with `scripts/record-interactions.mjs`. Both packers compile `interactions.json` into Prototype hotspots and emit coverage. Complete means every safe navigation control resolves to a saved capture; list unresolved controls explicitly.
 
 **Arguments:** optional path to the app project (default: current working directory). `--static` = skip the device phases and render a screenshot-less map. `--platform ios|android|both` (default `ios`) = which device(s) to capture on. `pr <number>` or `diff <base>..<head>` = PR diff mode (see bottom).
 
@@ -178,8 +180,10 @@ These flows are what make edges *pinnable*: a nav flow tapping through a transit
 
 ## Phase 6 — pack, render, deliver
 
+Review `interaction-coverage.json`. Missing inventories, stale hashes and unresolved menus prevent a claim of full navigation. Check linked controls and unresolved reasons in each variant before delivery.
+
 ```bash
-# downscale (sips is macOS; on Linux use `mogrify -resize '800x800>' <files>`)
+# Finalize screenshot size before recording its interaction inventory.
 for f in <project>/.screenmap/out/screens/*.png; do sips -Z 800 "$f" >/dev/null; done
 node <this skill's dir>/scripts/pack-map.mjs <project>        # → .screenmap/out/<app>-<date>.scrmap bundle
 node <this skill's dir>/scripts/render-map.mjs <project>/.screenmap/out/graph.json   # static HTML fallback
@@ -188,6 +192,16 @@ node <this skill's dir>/scripts/render-map.mjs <project>/.screenmap/out/graph.js
 Capturing both platforms: downscale each `screens/<platform>/` directory, then pass the platforms to the packer — `node .../pack-map.mjs <project> --platforms ios,android`. The bundle then carries both and the viewer shows an iOS / Android switcher; report coverage per platform, since a screen can be fine on one and broken on the other.
 
 The `.scrmap` bundle (zip: manifest.json + map.json + screens/) is the primary deliverable — see `docs/scrmap-format.md` in the skill repo. Open it in the **map viewer** (`apps/visualiser` in the skill repo, `npm run dev`, drag the bundle in): interactive graph, flow playback, click-to-copy replay commands. Send the bundle with SendUserFile; send `map.html` too as the no-tooling fallback (display: render). Report: routes captured / total, state variants captured, anything skipped (error screens, auth redirects, un-triggerable sheets), unresolved edges. Offer to publish as an Artifact (if so, load the artifact-design skill first and rebuild the page body-only per Artifact rules — don't publish the full-document HTML as-is). Suggest adding `.screenmap/out/` to `.gitignore`.
+
+## Variants
+
+Use this when the same screens must be captured under different app settings, such as language and theme. Declare them in `.screenmap/config.json`:
+
+```json
+{ "variants": [{ "id": "ar-dark", "label": "Arabic · dark", "setup": "myapp://dev/display?theme=dark&locale=ar" }] }
+```
+
+For each variant, in turn: open its `setup` URL, wait for the app to apply it, then run the full sweep (Phases 4–5) into `.screenmap/out/screens/<variant>/`. Run variants one after another, never interleaved, so one setting is never half applied to another variant's captures. Keep `capture-status.json` keyed by variant id. Pack with `node <this skill's dir>/scripts/pack-map.mjs <project> --variants en-light,ar-dark`. Variants work with one platform only; the packer exits with an error if `--platforms` lists more than one. The viewer then shows a variant switcher.
 
 ## Replay mode — `/screenmap replay <flow-name>`
 
